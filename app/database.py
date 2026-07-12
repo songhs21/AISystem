@@ -42,13 +42,29 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
+
+    # false_tags 컬럼 추가 (오탐 태그 전용 — pass_reasons의 부위 enum과 분리)
+    cursor.execute("""
+        ALTER TABLE feedback ADD COLUMN false_tags TEXT
+    """) if not any(
+        row[1] == "false_tags"
+        for row in cursor.execute("PRAGMA table_info(feedback)")
+    ) else None
+
     # generations 테이블 컬럼 추가 (upscaled_image — 없을 때만)
     cursor.execute("""
         ALTER TABLE generations ADD COLUMN upscaled_image TEXT
     """) if not any(
         row[1] == "upscaled_image"
         for row in cursor.execute("PRAGMA table_info(generations)")
+    ) else None
+
+    # false_tags 컬럼 추가 (오탐 태그 전용)
+    cursor.execute("""
+        ALTER TABLE feedback ADD COLUMN false_tags TEXT
+    """) if not any(
+        row[1] == "false_tags"
+        for row in cursor.execute("PRAGMA table_info(feedback)")
     ) else None
 
     # 앱 비정상 종료 시 generating 상태로 남은 좀비 레코드 정리
@@ -61,7 +77,7 @@ def init_db():
 
 
 
-def save_feedback(generation_id, score, liked_tags, disliked_tags, pass_type=None, pass_reasons=None):
+def save_feedback(generation_id, score, liked_tags, disliked_tags, pass_type=None, pass_reasons=None, false_tags=None):
     conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
 
@@ -77,20 +93,21 @@ def save_feedback(generation_id, score, liked_tags, disliked_tags, pass_type=Non
         json.dumps(disliked_tags, ensure_ascii=False),
         pass_type,
         json.dumps(pass_reasons or [], ensure_ascii=False),
+        json.dumps(false_tags or [], ensure_ascii=False),
     )
 
     if row:
         cursor.execute("""
             UPDATE feedback
-            SET score=?, liked_tags=?, disliked_tags=?, pass_type=?, pass_reasons=?
+            SET score=?, liked_tags=?, disliked_tags=?, pass_type=?, pass_reasons=?, false_tags=?
             WHERE id=?
         """, (*params, row[0]))
     else:
-        korea_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute("""
-            INSERT INTO feedback (generation_id, score, liked_tags, disliked_tags, pass_type, pass_reasons, created_at)
+            INSERT INTO feedback (generation_id, score, liked_tags, disliked_tags, pass_type, pass_reasons, false_tags)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (generation_id, *params, korea_now))
+        """, (generation_id, *params))
+
 
     conn.commit()
     conn.close()
@@ -147,7 +164,7 @@ def get_feedbacks_by_ids(gen_ids: list[int]) -> dict[int, dict]:
     conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
     cursor.execute(f"""
-        SELECT f.generation_id, f.score, f.liked_tags, f.disliked_tags, f.pass_type, f.pass_reasons
+        SELECT f.generation_id, f.score, f.liked_tags, f.disliked_tags, f.pass_type, f.pass_reasons, f.false_tags
         FROM feedback f
         INNER JOIN (
             SELECT generation_id, MAX(id) as max_id
@@ -163,6 +180,7 @@ def get_feedbacks_by_ids(gen_ids: list[int]) -> dict[int, dict]:
         "disliked_tags": json.loads(row[3]) if row[3] else [],
         "pass_type": row[4],
         "pass_reasons": json.loads(row[5]) if row[5] else [],
+        "false_tags": json.loads(row[6]) if row[6] else [],
     } for row in rows}
 
 

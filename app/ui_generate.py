@@ -18,7 +18,7 @@ from config.PATH import (
     DESIGN_DETAILS, MATERIAL_DETAILS, ACCESSORIES, LEGWEAR, FOOTWEAR,
     CHECKPOINT_DIR, WORKFLOW_PATH
 )
-from config.constants import TAG_CATEGORY_ORDER, EXTRA_CATEGORIES, CAT_KO, NEGATIVE_BASE, MODEL_RESOLUTION
+from config.constants import TAG_CATEGORY_ORDER, EXTRA_CATEGORIES, CAT_KO, NEGATIVE_BASE, MODEL_RESOLUTION, PASS_REASON_KO
 
 
 # 로컬 체크포인트 파일 목록 조회
@@ -58,6 +58,13 @@ def toggle_dislike(tag):
     else:
         st.session_state.selected_dislike.add(tag)
 
+def toggle_pass(tag):
+    st.session_state.selected_like.discard(tag)
+    st.session_state.selected_dislike.discard(tag)
+    if tag in st.session_state.selected_pass:
+        st.session_state.selected_pass.remove(tag)
+    else:
+        st.session_state.selected_pass.add(tag)
 
 # 생성 탭 렌더링
 def render_generate_tab():
@@ -67,6 +74,7 @@ def render_generate_tab():
         "image_ready":          False,
         "selected_like":        set(),
         "selected_dislike":     set(),
+        "selected_pass":        set(),
         "image":                None,
         "tags":                 [],
         "score":                5,
@@ -352,7 +360,7 @@ def render_generate_tab():
                         continue
                     cat_label = CAT_KO.get(cat, cat)
                     st.markdown(f"<div style='font-size: 20px; font-weight: bold; text-align: center;'>────{cat_label}────</div>", unsafe_allow_html=True)
-                    five_cols = st.columns([1, 1, 0.1, 1, 1])
+                    three_cols = st.columns(3)
 
                     for i, t in enumerate(t_list):
                         tag_value = t.get("tag", "unknown")
@@ -361,14 +369,19 @@ def render_generate_tab():
                         w_str     = f" W{w:.2f}" if w is not None else " W0.00"
                         liked     = tag_value in st.session_state.selected_like
                         disliked  = tag_value in st.session_state.selected_dislike
+                        passed    = tag_value in st.session_state.selected_pass
 
                         like_label = f"{'✅' if liked else '👍'} {display}\n{w_str}"
                         dis_label  = f"{'❌' if disliked else '👎'} {display}\n{w_str}"
+                        pas_label  = f"{'🚫' if passed else '⚠️'} {display}\n{w_str}"
 
-                        with five_cols[i % 2]:
+                        with three_cols[0]:
                             st.button(like_label, key=f"like_{cat}_{tag_value}", on_click=toggle_like, args=(tag_value,), width='stretch')
-                        with five_cols[3 + (i % 2)]:
+                        with three_cols[1]:
                             st.button(dis_label, key=f"dis_{cat}_{tag_value}", on_click=toggle_dislike, args=(tag_value,), width='stretch')
+                        with three_cols[2]:
+                            st.button(pas_label, key=f"pas_{cat}_{tag_value}", on_click=toggle_pass, args=(tag_value,), width='stretch')
+
 
             st.divider()
 
@@ -381,21 +394,40 @@ def render_generate_tab():
                     st.error("현재 이미지의 식별 ID를 찾을 수 없습니다.")
                 else:
                     pass_type_ui = st.session_state.get("pass_type_ui", "문제 없음")
-                    pass_type = None if pass_type_ui == "문제 없음" else "style" if pass_type_ui == "그림체" else "quality"
+                    pass_type_map = {
+                        "문제 없음": None,
+                        "그림체": "style",
+                        "인체 디테일": "quality",
+                        "마음에 들지 않음": "dislike",
+                    }
+                    pass_type     = pass_type_map.get(pass_type_ui)
                     final_reasons = st.session_state.get("edit_pass_reasons", []) if pass_type == "quality" else []
-                    current_score = st.session_state.get(f"score_slider_{gen_id}", 5)
+
+                    # "마음에 들지 않음"은 태그/스코어 미입력 → 빈값으로 저장
+                    if pass_type == "dislike":
+                        current_score  = None
+                        liked_tags     = []
+                        disliked_tags  = []
+                        false_tags     = []
+                    else:
+                        current_score  = st.session_state.get(f"score_slider_{gen_id}", 5)
+                        liked_tags     = list(st.session_state.selected_like)
+                        disliked_tags  = list(st.session_state.selected_dislike)
+                        false_tags     = list(st.session_state.selected_pass)
 
                     database.save_feedback(actual_gen_id, current_score,
-                        list(st.session_state.selected_like), list(st.session_state.selected_dislike),
-                        pass_type, final_reasons)
-                    database.update_tag_weights(
-                        list(st.session_state.selected_like), list(st.session_state.selected_dislike), current_score)
+                        liked_tags, disliked_tags, pass_type, final_reasons,
+                        false_tags=false_tags)
+                    if pass_type != "dislike":
+                        database.update_tag_weights(liked_tags, disliked_tags, current_score)
 
                     st.success("저장 완료")
                     st.session_state.selected_like    = set()
                     st.session_state.selected_dislike = set()
-                    st.session_state.image_ready = False
+                    st.session_state.selected_pass    = set()
+                    st.session_state.image_ready      = False
                     st.rerun()
+
 
         # 이미지 해상도 기반 세로/가로 레이아웃 분기
         img = PILImage.open(st.session_state.image)
@@ -413,14 +445,24 @@ def render_generate_tab():
             st.caption(", ".join(prompt_tags) if prompt_tags else "*(기본값)*")
 
             # 패스 유형 라디오 / 문제 부위 멀티셀렉트 (인체 디테일 선택 시에만 노출)
-            pass_type_ui = st.radio("패스 유형", ["문제 없음", "그림체", "인체 디테일"], horizontal=True, key="generate_pass_type")
+            # 패스 유형 라디오
+            pass_type_ui = st.radio(
+                "패스 유형",
+                ["문제 없음", "그림체", "인체 디테일", "마음에 들지 않음"],
+                horizontal=True,
+                key="generate_pass_type"
+            )
             edit_pass_reasons = st.multiselect(
-                "문제 부위", ["eye", "hand", "face", "body", "body_penetration", "extra_limb"],
+                "문제 부위",
+                options=list(PASS_REASON_KO.keys()),
+                format_func=lambda x: PASS_REASON_KO[x],
                 key="pass_reasons"
             ) if pass_type_ui == "인체 디테일" else []
 
-            st.session_state.pass_type_ui     = pass_type_ui
+            st.session_state.pass_type_ui      = pass_type_ui
             st.session_state.edit_pass_reasons = edit_pass_reasons
 
-            st.subheader("Tags")
-            render_tags()
+            # "마음에 들지 않음" 선택 시 태그/스코어 영역 숨김
+            if pass_type_ui != "마음에 들지 않음":
+                st.subheader("Tags")
+                render_tags()

@@ -71,4 +71,22 @@ BLACKLIST = {
     'lowres'
 }
 
+PASS_REASON_KO = {
+    "eye": "눈",
+    "ear": "귀",
+    "nose": "코",
+    "mouth": "입",
+    "face_overall": "얼굴 전체",
+    "hand": "손",
+    "finger": "손가락",
+    "arm": "팔",
+    "leg": "다리",
+    "foot": "발",
+    "body_overall": "체형/비율",
+    "body_penetration": "신체 관통",
+    "extra_limb": "팔다리 추가 생성",
+    "clothing_fit": "의상 맞음새",
+    "background": "배경",
+}
+
 NEGATIVE_BASE = "small_breasts, 1boy, shota, loli, text, watermark, clone, signature, multiple_views, username, lowres, bad anatomy, bad hands, extra digits, missing fingers, extra fingers, mutated hands, extra limbs, extra limbs, cloned face, gross proportions, malformed limbs, worst quality, low quality, jpeg artifacts, blurry, deformed, disfigured, explicit, nsfw"

@@ -8,7 +8,7 @@ import streamlit as st
 from comfyApi import run_upscale
 from config.constants import NEGATIVE_BASE
 from config.PATH import GRADIO_INPAINT, CONFIG_PATH, COMFY_OUTPUT, UPSCALE_MODEL_DIR, INPAINT_REQUEST, GRADIO_LOG, LOCAL_PYTHON, PYTHON_EMBEDED
-from config.constants import TAG_CATEGORY_ORDER, CAT_KO
+from config.constants import TAG_CATEGORY_ORDER, CAT_KO, PASS_REASON_KO
 from tag_util import _sort_key, _cat_label, tag_ko
 import logging
 
@@ -29,6 +29,15 @@ def _toggle_edit_dislike(tag: str, like_key: str, dis_key: str):
         st.session_state[dis_key].remove(tag)
     else:
         st.session_state[dis_key].add(tag)
+        
+def _toggle_edit_false(tag: str, like_key: str, dis_key: str, false_key: str):
+    st.session_state[like_key].discard(tag)
+    st.session_state[dis_key].discard(tag)
+    if tag in st.session_state[false_key]:
+        st.session_state[false_key].remove(tag)
+    else:
+        st.session_state[false_key].add(tag)
+
 
 # Gradio 인페인팅 실행
 def _launch_gradio_inpaint(gen_id, image_path):
@@ -113,7 +122,9 @@ def render_history_tab():
         "history_edit_id":       None,
         "history_page":          1,
         "show_filter_panel":     False,
+        "pass_type_filter":      "전체",
     }
+
     for key, default in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default
@@ -160,6 +171,7 @@ def render_history_tab():
     col_refresh, col_status, _ = st.columns([1, 2, 3])
     with col_refresh:
         if st.button("🔄 새로고침", width='stretch'):
+            st.session_state.history_dirty = True
             st.rerun()
     with col_status:
         if st.session_state.get("is_generating", False):
@@ -207,6 +219,21 @@ def render_history_tab():
                         "생성한 이미지 히스토리 보기",
                         value=st.session_state.show_images
                     )
+
+                    # 패스 유형 필터
+                    PASS_FILTER_OPTIONS = ["전체", "그림체", "인체 디테일", "마음에 들지 않음"]
+                    pass_filter = st.radio(
+                        "패스 유형 필터",
+                        options=PASS_FILTER_OPTIONS,
+                        index=PASS_FILTER_OPTIONS.index(st.session_state.get("pass_type_filter", "전체")),
+                        horizontal=True,
+                        key="pass_type_filter_radio"
+                    )
+                    if pass_filter != st.session_state.get("pass_type_filter", "전체"):
+                        st.session_state.pass_type_filter = pass_filter
+                        st.session_state.history_page = 1
+                        st.rerun()
+
 
 
                     # 점수 필터 라디오 / 기준점수 슬라이더 (적용 안함 제외 시 노출)
@@ -310,7 +337,21 @@ def render_history_tab():
         gen_ids = [g["id"] for g in filtered_generations]
         feedback_map = database.get_feedbacks_by_ids(gen_ids)
 
-        # 2패스: 점수 필터링
+        # 2패스: 패스 유형 필터링
+        pass_filter_val = st.session_state.get("pass_type_filter", "전체")
+        pass_type_filter_map = {
+            "그림체": "style",
+            "인체 디테일": "quality",
+            "마음에 들지 않음": "dislike",
+        }
+        if pass_filter_val != "전체":
+            target_pass = pass_type_filter_map[pass_filter_val]
+            filtered_generations = [
+                g for g in filtered_generations
+                if feedback_map.get(g["id"], {}).get("pass_type") == target_pass
+            ]
+
+        # 3패스: 점수 필터링
         score_mode = st.session_state.score_filter_mode
         score_val = st.session_state.score_filter_value
 
@@ -519,101 +560,138 @@ def render_history_tab():
 
                         # 패스 유형 라디오 / 문제 부위 멀티셀렉트 (인체 디테일 선택 시에만 노출)
                         current_pass_type = feedback.get("pass_type") if feedback else None
-                        pass_options = ["문제 없음", "그림체", "인체 디테일"]
-                        default_index = 1 if current_pass_type == "style" else 2 if current_pass_type == "quality" else 0
+                        pass_options = ["문제 없음", "그림체", "인체 디테일", "마음에 들지 않음"]
+                        default_index = (
+                            1 if current_pass_type == "style" else
+                            2 if current_pass_type == "quality" else
+                            3 if current_pass_type == "dislike" else 0
+                        )
 
                         edit_pass_type = st.radio("패스 유형", pass_options, index=default_index, horizontal=True, key=f"pass_type_{gen_id}")
 
                         edit_pass_reasons = st.multiselect(
-                            "문제 부위", ["eye", "hand", "face", "body", "body_penetration", "extra_limb"],
-                            default=feedback.get("pass_reasons", []) if feedback else [],
+                            "문제 부위",
+                            options=list(PASS_REASON_KO.keys()),
+                            format_func=lambda x: PASS_REASON_KO[x],
+                            default=[r for r in (feedback.get("pass_reasons", []) if feedback else []) if r in PASS_REASON_KO],
                             key=f"pass_reason_{gen_id}"
                         ) if edit_pass_type == "인체 디테일" else []
 
 
                         # 좋아요/싫어요 컬럼 헤더
-                        col_title_like, col_title_dis = st.columns(2)
+                        col_title_like, col_title_dis, col_pass_dis = st.columns(3)
                         with col_title_like:
                             st.markdown("<p style='text-align: center; margin: 0;'><strong>👍 좋아요</strong></p>", unsafe_allow_html=True)
                         with col_title_dis:
                             st.markdown("<p style='text-align: center; margin: 0;'><strong>👎 싫어요</strong></p>", unsafe_allow_html=True)
+                        with col_pass_dis:
+                            st.markdown("<p style='text-align: center; margin: 0;'><strong>❌ 없어요</strong></p>", unsafe_allow_html=True)
 
 
                         # 좋아요/싫어요 세션 상태 초기화 (기존 피드백 기반)
-                        edit_like_key = f"edit_like_{gen_id}"
-                        edit_dis_key  = f"edit_dis_{gen_id}"
+                        edit_like_key  = f"edit_like_{gen_id}"
+                        edit_dis_key   = f"edit_dis_{gen_id}"
+                        edit_false_key = f"edit_false_{gen_id}"
                         if edit_like_key not in st.session_state:
                             st.session_state[edit_like_key] = set(feedback.get("liked_tags", [])) if feedback else set()
                         if edit_dis_key not in st.session_state:
                             st.session_state[edit_dis_key] = set(feedback.get("disliked_tags", [])) if feedback else set()
+                        if edit_false_key not in st.session_state:
+                            st.session_state[edit_false_key] = set(feedback.get("false_tags", [])) if feedback else set()
 
+                        # "마음에 들지 않음" 시 태그/스코어 영역 숨김
+                        if edit_pass_type == "마음에 들지 않음":
+                            st.info("태그 및 스코어를 입력하지 않습니다.")
+                        else:
+                            # 태그 좋아요/싫어요 버튼 스크롤 영역
+                            with st.container(height=550):
+                                # 태그 카테고리 정렬 / 가중치 bulk 조회
+                                sorted_tags_h = sorted(tags, key=_sort_key)
+                                all_tag_values_h = [t.get("tag", "") for t in sorted_tags_h]
+                                weight_map_h = database.get_tag_weights_bulk(all_tag_values_h)
 
-                        # 태그 좋아요/싫어요 버튼 스크롤 영역
-                        with st.container(height=550):
-                            # 태그 카테고리 정렬 / 가중치 bulk 조회
-                            sorted_tags_h = sorted(tags, key=_sort_key)
-                            all_tag_values_h = [t.get("tag", "") for t in sorted_tags_h]
-                            weight_map_h = database.get_tag_weights_bulk(all_tag_values_h)
+                                # 카테고리별 그룹핑
+                                grouped_h = {}
+                                for t in sorted_tags_h:
+                                    cl = _cat_label(t)
+                                    grouped_h.setdefault(cl, []).append(t)
 
-                            # 카테고리별 그룹핑
-                            grouped_h = {}
-                            for t in sorted_tags_h:
-                                cl = _cat_label(t)
-                                grouped_h.setdefault(cl, []).append(t)
+                                # 카테고리 순서대로 태그 버튼 렌더링 (좌=좋아요, 우=싫어요)
+                                render_order = TAG_CATEGORY_ORDER + ["기타"]
+                                for cat in render_order:
+                                    cat_label = CAT_KO.get(cat, cat)
+                                    t_list_h = grouped_h.get(cat, [])
+                                    if not t_list_h:
+                                        continue
+                                    st.markdown(f"<div style='font-size: 20px; font-weight: bold; text-align: center;'>────{cat_label}────</div>", unsafe_allow_html=True)
+                                    three_cols_h = st.columns(3)
 
-                            # 카테고리 순서대로 태그 버튼 렌더링 (좌=좋아요, 우=싫어요)
-                            render_order = TAG_CATEGORY_ORDER + ["기타"]
-                            for cat in render_order:
-                                cat_label = CAT_KO.get(cat, cat)
-                                t_list_h = grouped_h.get(cat, [])
-                                if not t_list_h:
-                                    continue
-                                st.markdown(f"<div style='font-size: 20px; font-weight: bold; text-align: center;'>────{cat_label}────</div>", unsafe_allow_html=True)
-                                five_cols = st.columns([1, 1, 0.1, 1, 1])
+                                    for i, t in enumerate(t_list_h):
+                                        tag_value  = t.get("tag", "unknown")
+                                        liked_h    = tag_value in st.session_state[edit_like_key]
+                                        disliked_h = tag_value in st.session_state[edit_dis_key]
+                                        passed_h   = tag_value in st.session_state[edit_false_key]
+                                        display    = tag_ko.get(tag_value, tag_value)
+                                        w          = weight_map_h.get(tag_value)
+                                        w_str      = f" W{w:.2f}" if w is not None else "W0.00"
 
-                                for i, t in enumerate(t_list_h):
-                                    tag_value  = t.get("tag", "unknown")
-                                    liked_h    = tag_value in st.session_state[edit_like_key]
-                                    disliked_h = tag_value in st.session_state[edit_dis_key]
-                                    display    = tag_ko.get(tag_value, tag_value)
-                                    w          = weight_map_h.get(tag_value)
-                                    w_str      = f" W{w:.2f}" if w is not None else "W0.00"
+                                        like_label = f"{'✅' if liked_h else '👍'} {display}\n{w_str}"
+                                        dis_label  = f"{'❌' if disliked_h else '👎'} {display}\n{w_str}"
+                                        pas_label  = f"{'🚫' if passed_h else '⚠️'} {display}\n{w_str}"
 
-                                    like_label = f"{'✅' if liked_h else '👍'} {display}\n{w_str}"
-                                    dis_label  = f"{'❌' if disliked_h else '👎'} {display}\n{w_str}"
-
-                                    with five_cols[i % 2]:
-                                        st.button(like_label, key=f"po_el_{gen_id}_{cat}_{i}",
-                                                on_click=_toggle_edit_like,
-                                                args=(tag_value, edit_like_key, edit_dis_key), use_container_width=True)
-                                    with five_cols[3 + (i % 2)]:
-                                        st.button(dis_label, key=f"po_ed_{gen_id}_{cat}_{i}",
-                                                on_click=_toggle_edit_dislike,
-                                                args=(tag_value, edit_like_key, edit_dis_key), use_container_width=True)
+                                        with three_cols_h[0]:
+                                            st.button(like_label, key=f"po_el_{gen_id}_{cat}_{i}",
+                                                    on_click=_toggle_edit_like,
+                                                    args=(tag_value, edit_like_key, edit_dis_key), use_container_width=True)
+                                        with three_cols_h[1]:
+                                            st.button(dis_label, key=f"po_ed_{gen_id}_{cat}_{i}",
+                                                    on_click=_toggle_edit_dislike,
+                                                    args=(tag_value, edit_like_key, edit_dis_key), use_container_width=True)
+                                        with three_cols_h[2]:
+                                            st.button(pas_label, key=f"po_ep_{gen_id}_{cat}_{i}",
+                                                    on_click=_toggle_edit_false,
+                                                    args=(tag_value, edit_like_key, edit_dis_key, edit_false_key), use_container_width=True)
 
 
                         # 스코어 슬라이더 / 피드백 저장 버튼
                         edit_score_key = f"edit_score_{gen_id}"
-                        current_score = feedback.get("score", 5) if feedback else 5
-                        st.slider("Score 조정", 0, 10, current_score, key=edit_score_key)
+                        if edit_pass_type != "마음에 들지 않음":
+                            current_score = feedback.get("score", 5) if feedback else 5
+                            st.slider("Score 조정", 0, 10, current_score, key=edit_score_key)
 
                         if st.button("변경 사항 저장", key=f"po_save_{gen_id}", width='stretch', type="primary"):
-                            pass_type = None if edit_pass_type == "문제 없음" else "style" if edit_pass_type == "그림체" else "quality"
-                            database.save_feedback(
-                                gen_id,
-                                st.session_state[edit_score_key],
-                                list(st.session_state[edit_like_key]),
-                                list(st.session_state[edit_dis_key]),
-                                pass_type,
-                                edit_pass_reasons
-                            )
-                            database.update_tag_weights(
-                                list(st.session_state[edit_like_key]),
-                                list(st.session_state[edit_dis_key]),
-                                st.session_state[edit_score_key]
-                            )
+                            pass_type_map = {
+                                "문제 없음": None,
+                                "그림체": "style",
+                                "인체 디테일": "quality",
+                                "마음에 들지 않음": "dislike",
+                            }
+                            pass_type = pass_type_map.get(edit_pass_type)
+
+                            if pass_type == "dislike":
+                                database.save_feedback(
+                                    gen_id, None, [], [], pass_type, [],
+                                    false_tags=[]
+                                )
+                            else:
+                                database.save_feedback(
+                                    gen_id,
+                                    st.session_state[edit_score_key],
+                                    list(st.session_state[edit_like_key]),
+                                    list(st.session_state[edit_dis_key]),
+                                    pass_type,
+                                    edit_pass_reasons,
+                                    false_tags=list(st.session_state[edit_false_key])
+                                )
+                                database.update_tag_weights(
+                                    list(st.session_state[edit_like_key]),
+                                    list(st.session_state[edit_dis_key]),
+                                    st.session_state[edit_score_key]
+                                )
                             st.success("저장 완료")
                             st.rerun()
+
+
 
 
         elif total == 0:

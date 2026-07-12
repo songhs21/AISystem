@@ -111,3 +111,13 @@
 - 히스토리 업스케일 이미지 표시 + 인페인팅 대상 선택 라디오 추가 (원본/업스케일)
 - DB 중복 레코드 정리 (sync_unregistered_images가 업스케일 파일 긁어 생성한 중복)
 - gradio_inpaint.py내 sys.path.append(r"D:\Python\AISystem/PreferenceMemory") 경로 현재 구조에 맞게 수정
+
+## v0.13 — 피드백 시스템 고도화
+
+- `false_tags` 컬럼 추가 (feedback 테이블) — 오탐 태그 전용, pass_reasons 부위 enum과 분리
+- `PASS_REASON_KO` 딕셔너리 추가 (constants.py) — 15개 부위 enum 한국어 매핑
+- `pass_reasons` 15개로 확장 (eye/ear/nose/mouth/face_overall/hand/finger/arm/leg/foot/body_overall/body_penetration/extra_limb/clothing_fit/background)
+- 패스 유형 라디오 확장: "마음에 들지 않음(dislike)" 추가 → 태그/스코어 영역 비활성화
+- 태그 버튼 2열(좋/싫) → 3열(좋/싫/패) 변경 (생성 탭 + 히스토리 팝오버)
+- 히스토리 필터에 패스 유형 필터 추가 (그림체/인체 디테일/마음에 들지 않음)
+- 히스토리 새로고침 버튼 `history_dirty = True` 누락 버그 수정
