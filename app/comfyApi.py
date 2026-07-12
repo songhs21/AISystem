@@ -10,7 +10,7 @@ import uuid
 import sqlite3
 import random
 import shutil
-from config.PATH import DB_PATH, COMFY_DIR, COMFY_URL, COMFY_WS, COMFY_INPUT, COMFY_OUTPUT, PYTHON_EXE, UPSCALE_WORKFLOW_DIR, INPAINTING_DIR, DETAIL_INPAINTING_DIR
+from config.PATH import DB_PATH, COMFY_DIR, COMFY_URL, COMFY_WS, COMFY_INPUT, COMFY_OUTPUT, PYTHON_EMBEDED, UPSCALE_WORKFLOW_DIR, INPAINTING_DIR, DETAIL_INPAINTING_DIR
 
 
 # ComfyUI 서버 생존 확인
@@ -25,7 +25,7 @@ def is_comfy_alive():
 # ComfyUI 서버 서브프로세스 실행
 def start_comfy():
     main_py = os.path.join(COMFY_DIR, "main.py")
-    subprocess.Popen([PYTHON_EXE, main_py], cwd=COMFY_DIR)
+    subprocess.Popen([PYTHON_EMBEDED, main_py], cwd=COMFY_DIR)
 
 
 # ComfyUI 서버 응답 대기 (alive 확인될 때까지 폴링)
@@ -171,8 +171,16 @@ def run_upscale(image_path, select_upscaler, checkpoint, prompt, negative="", cl
 
     # 워크플로우 전송
     response = requests.post(f"{COMFY_URL}/prompt", json={"prompt": workflow, "client_id": client_id})
-    prompt_id = response.json()["prompt_id"]
+    resp_json = response.json()
+    if "prompt_id" not in resp_json:
+        raise ValueError(
+            f"ComfyUI 노드 검증 실패\n"
+            f"▶ 노드 에러: {resp_json.get('node_errors', {})}\n"
+            f"▶ 에러: {resp_json.get('error', {})}"
+        )
+    prompt_id = resp_json["prompt_id"]
     yield {"type": "progress", "value": 0.05, "text": "업스케일 큐 등록됨..."}
+
 
     # WebSocket 연결 및 진행 이벤트 수신
     ws = websocket.WebSocket()
@@ -223,10 +231,9 @@ def run_upscale(image_path, select_upscaler, checkpoint, prompt, negative="", cl
 # mode: "replace" = VAEEncodeForInpaint (복장/배경), "detail" = InpaintModelConditioning (눈/손)
 # yield {"type": "progress", "value": 0.0~1.0, "text": str}
 # yield {"type": "done", "image_path": str}
-def run_inpaint(image_path, mask_path, checkpoint, prompt, negative="", denoise=0.75, steps=20, mode="replace", client_id=None):
+def run_inpaint(image_path, mask_path, checkpoint, prompt, negative="", denoise=0.75, steps=20, mode="replace", gen_id=0, client_id=None):
     if client_id is None:
         client_id = str(uuid.uuid4())
-
     # ComfyUI 미실행 시 자동 기동
     if not is_comfy_alive():
         yield {"type": "progress", "value": 0.0, "text": "ComfyUI 시작 중..."}
@@ -236,6 +243,8 @@ def run_inpaint(image_path, mask_path, checkpoint, prompt, negative="", denoise=
     # 원본 이미지 / 마스크 파일을 ComfyUI input 폴더로 복사 및 I/O 완료 대기
     filename = os.path.basename(image_path)
     origin_stem = os.path.splitext(filename)[0].strip()
+
+    output_prefix = f"ComfyUI_{gen_id:04d}_inpainting_{count:04d}"
 
     assert os.path.exists(mask_path), f"마스크 파일 없음: {repr(mask_path)}"
 

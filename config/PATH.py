@@ -3,6 +3,7 @@ from pathlib import Path
 # PATH
 PROJECT_ROOT= Path(__file__).resolve().parent.parent
 COMFY_LOOT   = Path(r"C:\AI\ComfyUI_windows_portable")
+LOCAL_PYTHON = Path(r"C:\python3.10.\python.exe")
 COMFY_DIR   = COMFY_LOOT/"ComfyUI"
 ASSETS_DIR  = PROJECT_ROOT/"assets"
 # python
@@ -17,7 +18,7 @@ COMFY_URL           = "http://127.0.0.1:8188"
 COMFY_WS            = "ws://127.0.0.1:8188/ws"
 COMFY_OUTPUT        = COMFY_DIR/"output"
 COMFY_INPUT         = COMFY_DIR/"input"
-PYTHON_EXE          = COMFY_LOOT/"python_embeded"/"python.exe"
+PYTHON_EMBEDED      = COMFY_LOOT/"python_embeded"/"python.exe"
 CHECKPOINT_DIR      = COMFY_DIR/"models"/"checkpoints"
 UPSCALE_MODEL_DIR   = COMFY_DIR/"models"/"upscale_models"
 # Gradio

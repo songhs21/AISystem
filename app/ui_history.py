@@ -7,7 +7,7 @@ import os
 import streamlit as st
 from comfyApi import run_upscale
 from config.constants import NEGATIVE_BASE
-from config.PATH import GRADIO_INPAINT, CONFIG_PATH, UPSCALE_MODEL_DIR, INPAINT_REQUEST, GRADIO_LOG, PYTHON_EXE
+from config.PATH import GRADIO_INPAINT, CONFIG_PATH, COMFY_OUTPUT, UPSCALE_MODEL_DIR, INPAINT_REQUEST, GRADIO_LOG, LOCAL_PYTHON, PYTHON_EMBEDED
 from config.constants import TAG_CATEGORY_ORDER, CAT_KO
 from tag_util import _sort_key, _cat_label, tag_ko
 import logging
@@ -52,7 +52,7 @@ def _launch_gradio_inpaint(gen_id, image_path):
         encoding="utf-8"
     )
     proc = subprocess.Popen(
-        [PYTHON_EXE,
+        [LOCAL_PYTHON,
         GRADIO_INPAINT],
         stdout=_gradio_log_file,
         stderr=_gradio_log_file,
@@ -408,11 +408,12 @@ def render_history_tab():
 
                 main_img_col, main_info_col = st.columns(col_ratio, vertical_alignment="center")                
                 with main_img_col:
-                    # 이미지 파일 존재 여부 확인 후 렌더링
                     if gen.get("image_path") and os.path.exists(gen["image_path"]):
                         st.image(gen["image_path"], width='stretch')
                     else:
-                        st.warning("이미지 파일 없음")                
+                        st.warning("이미지 파일 없음")
+
+        
 
                 with main_info_col:
                     # 생성 메타데이터 표시 (일시, 시드, 모델, 프롬프트)
@@ -435,7 +436,9 @@ def render_history_tab():
                     else:
                         st.warning("업스케일 모델 없음")
                         selected_upscaler = None
+
                     upscaled = gen.get("upscaled_image")
+                    upscaled_path = os.path.join(str(COMFY_OUTPUT), upscaled) if upscaled else None
                     st.markdown(f"**🔍 업스케일:** ✅ `{upscaled}`" if upscaled else "**🔍 업스케일:** ❌")
 
                     # 피드백 데이터 표시 (점수, 좋아요/싫어요 태그, 패스 여부)
@@ -489,10 +492,23 @@ def render_history_tab():
                         st.markdown(f"✅ 업스케일 완료")
 
 
+
                     # 인페인팅 버튼 (Gradio 서브프로세스 실행)
+                    if upscaled_path and os.path.exists(upscaled_path):
+                        inpaint_target = st.radio(
+                            "🖌️ 인페인팅 대상",
+                            ["원본", "업스케일"],
+                            horizontal=True,
+                            key=f"inpaint_target_{gen['id']}"
+                        )
+                        inpaint_path = upscaled_path if inpaint_target == "업스케일" else gen["image_path"]
+                    else:
+                        inpaint_path = gen["image_path"]
+
                     if st.button("🖌️ 인페인팅", key=f"inpaint_btn_{gen['id']}", width='stretch'):
-                        _launch_gradio_inpaint(gen['id'], gen['image_path'])
+                        _launch_gradio_inpaint(gen['id'], inpaint_path)
                         st.info("브라우저에서 인페인팅 창이 열립니다.")
+
 
 
                     # 피드백 편집 팝오버 (패스 유형 / 좋아요·싫어요 태그 수정)

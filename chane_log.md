@@ -97,3 +97,17 @@
 - 파일명 ComfyUI_{gen_id}_generated / inpainting_{count} 통일
 - sync_unregistered_images 제거
 - feedback created_at KST 수정
+
+## v0.12 — gen_id 기반 파일명 통일 + 버그 수정
+
+- gen_id 선발급 방식으로 생성 타이밍 확정 (save_generation_start → prefix 주입 → worker UPDATE)
+- 파일명 ComfyUI_{gen_id}_generated / ComfyUI_{gen_id}_inpainting_{count} 통일
+- save_generation_complete INSERT → UPDATE 방식으로 변경
+- worker.py pre_gen_id 인자 추가
+- run_inpaint gen_id 파라미터 추가
+- feedback created_at KST 수정 (datetime('now', 'localtime'))
+- sync_unregistered_images 주석 처리 (gen_id 선발급으로 누락 케이스 제거)
+- run_upscale ComfyUI 노드 검증 실패 에러 핸들링 추가
+- 히스토리 업스케일 이미지 표시 + 인페인팅 대상 선택 라디오 추가 (원본/업스케일)
+- DB 중복 레코드 정리 (sync_unregistered_images가 업스케일 파일 긁어 생성한 중복)
+- gradio_inpaint.py내 sys.path.append(r"D:\Python\AISystem/PreferenceMemory") 경로 현재 구조에 맞게 수정

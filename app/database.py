@@ -2,9 +2,7 @@
 import sqlite3
 import json
 from datetime import datetime
-import glob
 import os
-import time
 from config.PATH import DB_PATH
 
 #underwrear visible, outlines visible, sheer tight clothes
@@ -88,10 +86,11 @@ def save_feedback(generation_id, score, liked_tags, disliked_tags, pass_type=Non
             WHERE id=?
         """, (*params, row[0]))
     else:
+        korea_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute("""
             INSERT INTO feedback (generation_id, score, liked_tags, disliked_tags, pass_type, pass_reasons, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
-        """, (generation_id, *params))
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (generation_id, *params, korea_now))
 
     conn.commit()
     conn.close()
@@ -237,17 +236,18 @@ def get_generation_by_id(gen_id):
     }
 
 
-def save_generation_complete(prompt_id, prompt_text, seed, checkpoint, image_path, tags):
-    # 생성 완료 데이터 단일 INSERT (worker.py에서 호출)
+def save_generation_complete(gen_id, prompt_id, prompt_text, seed, checkpoint, image_path, tags):
+    # gen_id 선발급된 레코드를 완료 상태로 UPDATE (worker.py에서 호출)
     with sqlite3.connect(DB_PATH, timeout=10) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO generations
-                (prompt_id, prompt, seed, checkpoint, image_path, file_name, tags, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'done', datetime('now', 'localtime'))
-        """, (prompt_id, prompt_text, seed, checkpoint, image_path, os.path.basename(image_path), json.dumps(tags)))
+            UPDATE generations
+            SET prompt_id=?, prompt=?, seed=?, checkpoint=?, image_path=?, file_name=?, tags=?, status='done'
+            WHERE id=?
+        """, (prompt_id, prompt_text, seed, checkpoint, image_path, os.path.basename(image_path), json.dumps(tags), gen_id))
         conn.commit()
-        return cursor.lastrowid
+        return gen_id
+
 
 
 def update_tag_weights(liked_tags, disliked_tags, score):
@@ -286,46 +286,46 @@ def update_tag_weights(liked_tags, disliked_tags, score):
     conn.close()
 
 
-def sync_unregistered_images(image_dir_path, analyze_fn):
-    # 디스크에만 있고 DB 미등록된 이미지를 WD14 태깅 후 복구 등록
-    disk_images = glob.glob(os.path.join(image_dir_path, "*.png")) + \
-                  glob.glob(os.path.join(image_dir_path, "*.jpg"))
-    if not disk_images:
-        return
+# def sync_unregistered_images(image_dir_path, analyze_fn):
+#     # 디스크에만 있고 DB 미등록된 이미지를 WD14 태깅 후 복구 등록
+#     disk_images = glob.glob(os.path.join(image_dir_path, "*.png")) + \
+#                   glob.glob(os.path.join(image_dir_path, "*.jpg"))
+#     if not disk_images:
+#         return
 
-    with sqlite3.connect(DB_PATH, timeout=30) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT file_name FROM generations WHERE file_name IS NOT NULL")
-        registered_filenames = {row[0].lower() for row in cursor.fetchall() if row[0]}
+#     with sqlite3.connect(DB_PATH, timeout=30) as conn:
+#         cursor = conn.cursor()
+#         cursor.execute("SELECT file_name FROM generations WHERE file_name IS NOT NULL")
+#         registered_filenames = {row[0].lower() for row in cursor.fetchall() if row[0]}
 
-        has_changes = False
-        for img_path in disk_images:
-            normalized_path = os.path.normpath(img_path).replace("\\", "/")
-            filename = os.path.basename(normalized_path).lower()
+#         has_changes = False
+#         for img_path in disk_images:
+#             normalized_path = os.path.normpath(img_path).replace("\\", "/")
+#             filename = os.path.basename(normalized_path).lower()
 
-            # 인페인팅 결과물 스킵
-            if "_inpainting_" in filename:
-                continue
+#             # 인페인팅 결과물 스킵
+#             if "_inpainting_" in filename:
+#                 continue
 
-            if filename not in registered_filenames:
-                try:
-                    tags_raw = analyze_fn(normalized_path)
-                    cursor.execute("""
-                        INSERT INTO generations
-                            (prompt_id, prompt, seed, checkpoint, image_path, file_name, tags, status, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, 'done', ?)
-                    """, (
-                        f"recovered_{int(time.time())}", "*(복구본)*", 0, "Unknown",
-                        normalized_path, os.path.basename(normalized_path),
-                        json.dumps(tags_raw), datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    ))
-                    has_changes = True
-                except Exception as e:
-                    print(f"복구 실패: {e}")
+#             if filename not in registered_filenames:
+#                 try:
+#                     tags_raw = analyze_fn(normalized_path)
+#                     cursor.execute("""
+#                         INSERT INTO generations
+#                             (prompt_id, prompt, seed, checkpoint, image_path, file_name, tags, status, created_at)
+#                         VALUES (?, ?, ?, ?, ?, ?, ?, 'done', ?)
+#                     """, (
+#                         f"recovered_{int(time.time())}", "*(복구본)*", 0, "Unknown",
+#                         normalized_path, os.path.basename(normalized_path),
+#                         json.dumps(tags_raw), datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+#                     ))
+#                     has_changes = True
+#                 except Exception as e:
+#                     print(f"복구 실패: {e}")
 
-        # 변경분 있을 때만 커밋 (불필요한 저널 생성 방지)
-        if has_changes:
-            conn.commit()
+#         # 변경분 있을 때만 커밋 (불필요한 저널 생성 방지)
+#         if has_changes:
+#             conn.commit()
 
 
 def get_generation_by_prompt_id(prompt_id):

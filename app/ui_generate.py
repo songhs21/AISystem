@@ -243,6 +243,15 @@ def render_generate_tab():
         user_prompt = f"{v4_prefix}, {core_prompt}" if v4_prefix else core_prompt
         workflow["6"]["inputs"]["text"] = user_prompt
 
+        # gen_id 선발급 + 파일명 frefix 주입
+        pre_gen_id = database.save_generation_start(
+            prompt_id="pending",
+            prompt_text=user_prompt,
+            seed=random_seed,
+            checkpoint=selected_model
+        )
+        workflow["9"]["inputs"]["filename_prefix"] = f"ComfyUI_{pre_gen_id:04d}_generated"
+        
         # 네거티브 프롬프트 조립 (사용자 입력 + 베이스 + 모델별 추가)
         MODEL_NEGATIVE = {
             "animagineXL40": "",
@@ -264,7 +273,7 @@ def render_generate_tab():
                 # 워커 스레드 시작 (DB 저장 담당)
                 threading.Thread(
                     target=watch_comfy,
-                    args=(prompt_id, before_time, user_prompt, random_seed, selected_model),
+                    args=(prompt_id, before_time, user_prompt, random_seed, selected_model, pre_gen_id),
                     daemon=True
                 ).start()
 

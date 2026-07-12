@@ -8,7 +8,7 @@ import time
 import numpy as np
 from PIL import Image as PILImage, ImageFilter, ImageEnhance
 
-sys.path.append(r"D:\Python\AISystem\PreferenceMemory")
+sys.path.append(r"D:\Python\AISystem")
 
 import database
 from comfyApi import run_inpaint
@@ -125,7 +125,7 @@ def inpaint(image_and_mask, prompt, negative, denoise, steps, mode, checkpoint_o
 
         # 인페인팅 실행
         output_path = None
-        for event in run_inpaint(origin_path, mask_path, checkpoint, prompt, negative, float(denoise), int(steps), inpaint_mode):
+        for event in run_inpaint(origin_path, mask_path, checkpoint, prompt, negative, float(denoise), int(steps), inpaint_mode, gen_id=int(gen_id)):
             if event["type"] == "done":
                 output_path = event["image_path"]
 

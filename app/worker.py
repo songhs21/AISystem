@@ -36,7 +36,7 @@ def is_prompt_in_queue(prompt_id):
 # ComfyUI 생성 완료를 폴링으로 감지 → 이미지 태깅 후 DB 저장
 # 좀비 판정: 히스토리/큐 모두 없는 상태가 ZOMBIE_LIMIT초 지속 시 종료
 # 연결 오류: CONN_ERR_LIMIT초 누적 시 강제 종료
-def watch_comfy(prompt_id, before, prompt_text, seed, checkpoint):
+def watch_comfy(prompt_id, before, prompt_text, seed, checkpoint, pre_gen_id=None):
     logging.info(f"워커 시작: prompt_id={prompt_id}")
 
     ZOMBIE_LIMIT   = 10
@@ -74,6 +74,7 @@ def watch_comfy(prompt_id, before, prompt_text, seed, checkpoint):
                     image_path = max(new_files, key=os.path.getctime)
                     tags = [{"tag": t["tag"], "score": t["score"]} for t in analyze(image_path)]
                     gen_id = database.save_generation_complete(
+                        gen_id=pre_gen_id,
                         prompt_id=prompt_id,
                         prompt_text=prompt_text,
                         seed=seed,
