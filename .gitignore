@@ -1,0 +1,34 @@
+# 개인 프롬프트 파일 제외
+assets/workflow/custom_workflow_api.json
+
+# 개인 파일
+user_data/
+
+# 각종 문서 파일
+docx/
+
+# 번역 및 태그 모음
+assets/tag/
+
+# vscode cli
+tools/
+
+# 유틸 및 모델
+assets/model/
+assets/models/
+
+# DB 및 로그
+data/
+
+# py캐시 파일
+app/__pycache__/
+config/__pycache__/
+
+# script
+scripts/
+
+# 기타 파일
+mask_debug.png
+slashTag.csv
+worker.log
+AISystem_filetree.txt

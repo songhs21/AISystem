@@ -1,0 +1,14 @@
+{
+  "paths": {
+    "Comfy_UI": "C:\\AI\\ComfyUI_windows_portable\\ComfyUI"
+  },
+  "history": {
+    "filter": {
+      "excluded_tags": [],
+      "included_tags": [],
+      "include_mode": "AND",
+      "score_filter_mode": "적용 안함",
+      "score_filter_value": 10
+    }
+  }
+}

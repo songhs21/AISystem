@@ -1,0 +1,371 @@
+{
+  "age_restriction": {
+    "sfw": {
+      "ko": "전체 이용가"
+    }
+  },
+  "background": {
+    "night_sky": {
+      "ko": "밤하늘"
+    },
+    "outdoors": {
+      "ko": "야외"
+    },
+    "beach": {
+      "ko": "해변"
+	}
+  },
+  "body_features": {
+    "sweat": {
+      "ko": "땀"
+    },
+    "eyelashes": {
+      "ko": "속눈썹"
+    }
+  },
+  "underwear_style": {
+    "underwear": {
+      "ko": "속옷"
+    },
+    "Camisole": {
+      "ko": "캐미솔"
+    }
+  },
+  "skin_color": {
+    "dark-skinned_female": {
+      "ko": "태닝 피부"
+    }
+  },
+  "bottom_style": {
+    "pencil_skirt": {
+      "ko": "펜슬 스커트"
+    },
+    "frilled_skirt": {
+      "ko": "프릴 스커트"
+    }
+  },
+  "socks_style": {
+    "socks": {
+      "ko": "양말"
+    }
+  },
+  "cloth_color_pattern": {
+    "striped_clothes": {
+      "ko": "줄무늬 옷"
+    }
+  },
+  "color_pattern": {
+    "plaid": {
+      "ko": "체크무늬"
+    }
+  },
+  "design_details": {
+    "halterneck": {
+      "ko": "홀터넥"
+    },
+    "off-shoulder_dress": {
+      "ko": "오프숄더 드레스"
+    }
+  },
+  "cloth_prop": {
+    "buttons": {
+      "ko": "단추"
+    },
+    "zipper": {
+      "ko": "지퍼"
+    }
+  },
+  "Armor": {
+    "breastplate": {
+      "ko": "흉갑"
+    },
+    "armor": {
+      "ko": "갑옷"
+    },
+    "shoulder_armor": {
+      "ko": "어깨 장갑"
+    },
+    "gauntlets": {
+      "ko": "건틀릿"
+    }
+  },
+  "cloth_theme": {
+    "office_lady": {
+      "ko": "오피스 레이디"
+    },
+    "wedding_dress": {
+      "ko": "웨딩 드레스"
+    }
+  },
+  "etc": {
+    "heart": {
+      "ko": "하트"
+    }
+  },
+  "number_of_people": {
+    "multiple_girls": {
+      "ko": "여러 명의 인물"
+    },
+    "clone": {
+      "ko": "복수의 동일 인물"
+    }
+  },
+  "body_shape": {
+    "fat": {
+      "ko": "뚱뚱함"
+    },
+    "plump": {
+      "ko": "통통함"
+    }
+  },
+  "coupling": {
+    "hetero": {
+      "ko": "남녀 커플"
+    }
+  },
+  "fetish": {
+    "tongue": {
+      "ko": "혀"
+    }
+  },
+  "nail": {
+    "nail_polish": {
+      "ko": "매니큐어"
+    },
+    "pink_nails": {
+      "ko": "분홍색 손톱"
+    }
+  },
+  "emotion": {
+    ":o": {
+      "ko": ":o"
+    },
+    ":3": {
+      "ko": ":3"
+    },
+    "grin": {
+      "ko": "씩 웃기"
+    },
+    ":p": {
+      "ko": ":P 표정"
+    },
+    ":q": {
+      "ko": ":Q 표정"
+    },
+    ";d": {
+      "ko": ";D 표정"
+    }
+  },
+  "framing": {
+    "from_above": {
+      "ko": "하이 앵글"
+    },
+    "from_below": {
+      "ko": "로우 앵글"
+    }
+  },
+  "eyes_color": {
+    "purple_eyes": {
+      "ko": "보라색 눈"
+    },
+    "pink_eyes": {
+      "ko": "분홍색 눈"
+    },
+    "blue_eyes": {
+      "ko": "푸른 눈"
+    }
+  },
+  "footwear_color": {
+    "pink_footwear": {
+      "ko": "분홍색 신발"
+    },
+    "blue_footwear": {
+      "ko": "푸른색 신발"
+    }
+  },
+  "footwear_style": {
+    "mary_janes": {
+      "ko": "메리 제인 슈즈"
+    },
+    "boots": {
+      "ko": "부츠"
+    },
+    "sandals": {
+      "ko": "샌들"
+    }
+  },
+  "hair_accessory": {
+    "hair_ribbon": {
+      "ko": "머리 리본"
+    },
+    "hair_ornament": {
+      "ko": "머리 장식"
+    },
+    "hair_scrunchie": {
+      "ko": "스크런처 머리끈"
+    }
+  },
+  "hair_color": {
+    "orange_hair": {
+      "ko": "오렌지색 머리"
+    },
+    "blonde_hair": {
+      "ko": "금발"
+    },
+    "brown_hair": {
+      "ko": "갈색 머리"
+    }
+  },
+  "hair_color_pattern": {
+    "multicolored_hair": {
+      "ko": "멀티 컬러 헤어"
+    },
+    "gradient_hair": {
+      "ko": "그라디언트 헤어"
+    },
+    "two-tone_hair": {
+      "ko": "투톤 헤어"
+    },
+    "colored_inner_hair": {
+      "ko": "시크릿 투톤"
+    }
+  },
+  "hair_style": {
+    "wavy_hair": {
+      "ko": "웨이브 헤어"
+    },
+    "medium_hair": {
+      "ko": "중단발 머리"
+    },
+    "long_hair": {
+      "ko": "긴 머리"
+    },
+    "hair_bun": {
+      "ko": "번 헤어"
+    }
+  },
+  "front_hair_style": {
+    "forehead": {
+      "ko": "이마 노출"
+    },
+    "parted_bangs": {
+      "ko": "갈라진 앞머리"
+    },
+    "blunt_bangs": {
+      "ko": "뱅헤어"
+    }
+  },
+  "outfit_color": {
+    "black_dress": {
+      "ko": "검은색 드레스"
+    }
+  },
+  "outfit_costume": {
+    "dress": {
+      "ko": "드레스"
+    },
+    "suit": {
+      "ko": "수트"
+    }
+  },
+  "outfit_general": {
+    "track_suit": {
+      "ko": "트레이닝 복"
+    },
+    "serafuku": {
+      "ko": "세일러복"
+    }
+  },
+  "outfit_swimwear": {
+    "swimsuit": {
+      "ko": "수영복"
+    }
+  },
+  "swimwear_color": {
+    "black_bikini": {
+      "ko": "검은색 비키니"
+    },
+    "white_bikini": {
+      "ko": "흰색 비키니"
+    }
+  },
+  "pose": {
+    "head_rest": {
+      "ko": "머리를 기댐"
+    },
+    "hands_up": {
+      "ko": "두 손을 올림"
+    }
+  },
+  "props_accessories": {
+    "bow": {
+      "ko": "리본"
+    },
+    "eyewear_on_head": {
+      "ko": "머리 위 안경"
+    }
+  },
+  "props_food": {
+    "hair_tie_in_mouth": {
+      "ko": "입에 문 머리끈"
+    }
+  },
+  "props_furniture": {
+    "bar_stool": {
+      "ko": "바 스툴"
+    },
+    "chandelier": {
+      "ko": "샹들리에"
+    },
+    "couch": {
+      "ko": "소파"
+    }
+  },
+  "props_objects": {
+    "instrument": {
+      "ko": "악기"
+    },
+    "bell": {
+      "ko": "방울"
+    }
+  },
+  "top_style": {
+    "off_shoulder": {
+      "ko": "오프숄더"
+    },
+    "shirt": {
+      "ko": "셔츠"
+    },
+    "hood": {
+      "ko": "후드"
+    }
+  },
+  "cloth_material": {
+    "frilled_leotard": {
+      "ko": "프릴 레오타드"
+    },
+    "see-through": {
+      "ko": "시스루"
+    },
+    "after_sex": {
+      "ko": "성관계 후"
+    },
+    "see-through_skirt": {
+      "ko": "시스루 치마"
+    }
+  },
+  "character": {
+    "asuna_(blue_archive)": {
+      "ko": "아스나 (블루 아카이브)"
+    },
+    "reisalin_stout": {
+      "ko": "라이잘린 스타우트(라이자의 아틀리에)"
+    },
+    "shijou_takane": {
+      "ko": "시죠 타카네 (아이돌 마스터)"
+    },
+    "wakamo_(blue_archive)": {
+      "ko": "와카모 (블루 아카이브)"
+    }
+  }
+}

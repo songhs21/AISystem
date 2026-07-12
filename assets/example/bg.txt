@@ -1,0 +1,5 @@
+indoors, bedroom
+indoors, living room
+outdoors, city street
+outdoors, back alley
+outdoors, park
