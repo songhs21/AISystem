@@ -39,9 +39,9 @@ CAT_KO = {
 MODEL_RESOLUTION = {
     # 🌟 AnimagineXL V4: 전용 파라미터 프로필 내장
     "animagineXL40_v4": {
-        "width": 832, "height": 1216, 
+        "width": 1024, "height": 1024,
         "steps": 28, "cfg": 5.5, 
-        "prefix": "score_9, score_8_up, score_7_up, quality_high, source_anime"
+        "prefix": "masterpiece, high score" # score_9_up, source_game, source_anime, source_cartoon
     },
     # 궤도 수정 없이 기존 세팅(해상도만 제어)을 유지할 모델들
     "catTowerNoobai": {"width": 832, "height": 1216},
