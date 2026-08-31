@@ -34,6 +34,7 @@ export const historyApi = {
   vram: () => client.get('/api/system/vram'),
   comfyStart: () => client.post('/api/system/comfy/start'),
   comfyKill: () => client.post('/api/system/comfy/kill'),
+  allTagWeights: () => client.get('/api/history/all-tag-weights'),
 }
 
 // ── 인페인팅 ──────────────────────────────────────────────

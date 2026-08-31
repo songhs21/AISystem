@@ -88,3 +88,8 @@ def inpaintings(gen_id: int):
 def sync_tags():
     added = sync_unregistered_tags(TAG_META_PATH, tag_meta)
     return {"added": added}
+
+@router.get("/all-tag-weights")
+def all_tag_weights():
+    from core.image.preference import get_all_tag_weights
+    return get_all_tag_weights()

@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# streamlit
+app/
+
 # Node
 node_modules/
 dist/
@@ -35,3 +38,5 @@ mask_debug.png
 slashTag.csv
 AISystem_filetree.txt
 tree.txt
+package-lock.json
+package.json

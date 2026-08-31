@@ -4,7 +4,55 @@ import json
 import os
 from datetime import datetime
 from core.db import get_conn
+from core.image.tag import tag_to_cat
 
+# ── 헬퍼 ──────────────────────────────────────────────────
+
+def _attach_category(tags: list[dict]) -> list[dict]:
+    """tags 리스트의 각 항목에 category 필드 추가"""
+    for t in tags:
+        t["category"] = tag_to_cat.get(t["tag"], "기타")
+    return tags
+
+
+# get_all_generations 수정 — tags 파싱 부분만
+def get_all_generations() -> list[dict]:
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, prompt, seed, image_path, tags, created_at, checkpoint, upscaled_image
+        FROM generations WHERE status = 'done' OR status IS NULL
+        ORDER BY created_at DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [{
+        "id": r[0], "prompt": r[1], "seed": r[2],
+        "image_path": r[3],
+        "tags": _attach_category(json.loads(r[4])) if r[4] else [],
+        "created_at": r[5], "checkpoint": r[6] or "Unknown",
+        "upscaled_image": r[7] or None
+    } for r in rows]
+
+
+# get_generation_by_id 수정 — tags 파싱 부분만
+def get_generation_by_id(gen_id) -> dict | None:
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, prompt, seed, image_path, tags, status, checkpoint, created_at
+        FROM generations WHERE id = ?
+    """, (gen_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "id": row[0], "prompt": row[1], "seed": row[2],
+        "image_path": row[3],
+        "tags": _attach_category(json.loads(row[4])) if row[4] else [],
+        "status": row[5], "checkpoint": row[6], "created_at": row[7],
+    }
 
 # ── Generation ────────────────────────────────────────────
 
@@ -85,6 +133,7 @@ def get_generation_by_id(gen_id) -> dict | None:
     return {
         "id": row[0], "prompt": row[1], "seed": row[2],
         "image_path": row[3], "tags": json.loads(row[4]) if row[4] else [],
+        "tags": _attach_category(json.loads(row[4])) if row[4] else [],
         "status": row[5], "checkpoint": row[6], "created_at": row[7],
     }
 
@@ -287,3 +336,11 @@ def get_upscaled_image(gen_id) -> str | None:
     row = cursor.fetchone()
     conn.close()
     return row[0] if row else None
+
+def get_all_tag_weights() -> dict[str, float]:
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT tag, weight FROM user_tag_weights")
+    rows = cursor.fetchall()
+    conn.close()
+    return {row[0]: round(row[1], 2) for row in rows}

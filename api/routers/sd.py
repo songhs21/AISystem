@@ -138,45 +138,6 @@ def generate(req: GenerateRequest):
             else:
                 core_prompt = ""
                 print(f"[SD] 빈 프롬프트")
-                # base_prompt = workflow["6"]["inputs"]["text"]
-
-                # # 헤어
-                # hair_parts = [
-                #     random.choice(_load_txt(HAIR_LENGTH)),
-                #     random.choice(_load_txt(HAIR_STYLE)),
-                #     *random.sample(_load_txt(BANGS),             random.randint(0, 1)),
-                #     *random.sample(_load_txt(HAIR_DETAILS),      random.randint(0, 2)),
-                #     *random.sample(_load_txt(HAIR_ACCESSORIES),  random.randint(0, 1)),
-                # ]
-
-                # # 의상
-                # outfit_parts = [
-                #     random.choice(_load_txt(COSTUME_BASE)),
-                #     *random.sample(_load_txt(OUTERWEAR),       random.randint(0, 1)),
-                #     *random.sample(_load_txt(TOP_STYLE),        random.randint(0, 1)),
-                #     *random.sample(_load_txt(BOTTOM_STYLE),     random.randint(0, 1)),
-                #     *random.sample(_load_txt(FASHION_THEME),    random.randint(0, 1)),
-                #     *random.sample(_load_txt(SEASON_COSTUME),   random.randint(0, 1)),
-                #     *random.sample(_load_txt(DESIGN_DETAILS),   random.randint(0, 3)),
-                #     *random.sample(_load_txt(MATERIAL_DETAILS), random.randint(0, 2)),
-                # ]
-
-                # # 악세사리
-                # acc_parts = [
-                #     *random.sample(_load_txt(ACCESSORIES), random.randint(0, 2)),
-                #     *random.sample(_load_txt(FOOTWEAR),    random.randint(0, 1)),
-                #     *random.sample(_load_txt(LEGWEAR),     random.randint(0, 1)),
-                # ]
-
-                # core_prompt = ", ".join(filter(None, [
-                #     base_prompt,
-                #     random.choice(_load_txt(MOUTH_STYLE)),
-                #     random.choice(_load_txt(POSES_PATH)),
-                #     *hair_parts,
-                #     *outfit_parts,
-                #     *acc_parts,
-                # ]))
-                # print(f"[SD] 모드 B 결과: {core_prompt[:200]}")  # 추가
 
             # 프롬프트 조립
             user_prompt = f"{v4_prefix}, {core_prompt}" if v4_prefix else core_prompt

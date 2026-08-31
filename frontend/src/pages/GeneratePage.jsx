@@ -6,6 +6,21 @@ import { API_BASE } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
 import TagPanel from '../components/TagPanel'
 import ImageViewer from '../components/ImageViewer'
+import Fuse from 'fuse.js'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  rectSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 // ─── 카테고리 순서 ───────────────────────────────────────────────
 const CATEGORY_ORDER = [
@@ -20,8 +35,8 @@ const CATEGORY_CONFIG = {
     { key: 'people.number_of_people', label: '인원수', multi: false }
   ],
   composition: [
-    { key: 'composition.angle', label: '앵글', multi: true },
-    { key: 'composition.layout_and_composition', label: '구도', multi: true },
+    { key: 'composition.angle', label: '앵글', multi: false },
+    { key: 'composition.layout_and_composition', label: '구도', multi: false },
     { key: 'composition.border_layout', label: '테두리', multi: true },
     { key: 'composition.viewer_focus', label: '시선 초점', multi: false },
     { key: 'composition.body_focus', label: '신체 초점', multi: true },
@@ -223,6 +238,15 @@ function PromptTags({ prompt }) {
   )
 }
 
+// ── 퍼지 검색 유틸 ──────────────────
+function buildFuse(list) {
+  return new Fuse(list, {
+    keys: ['en', 'ko'],
+    threshold: 0.4,      // 0.0 완전일치 ~ 1.0 전부매칭, 0.4가 실용적
+    distance: 100,
+    includeScore: true,
+  })
+}
 
 // ─── 메인 컴포넌트 ───────────────────────────────────────────────
 export default function GeneratePage() {
@@ -240,15 +264,36 @@ export default function GeneratePage() {
   const [usedPrompt, setUsedPrompt] = useState('')
 
   // 드롭박스 모드 state
-  const [dropSelections, setDropSelections] = useState({})   // { 'cat.subKey': [en, ...] }
-  const [dropRandom, setDropRandom] = useState({})           // { 'cat.subKey': bool }
-  const [dropRandomFixed, setDropRandomFixed] = useState({}) // { 'cat.subKey': en }
+  
+  const [dropSelections, setDropSelections] = useState(() => {
+    try {
+      const saved = localStorage.getItem('dropSelections')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })  // { 'cat.subKey': [en, ...] }
+  const [dropRandom, setDropRandom] = useState(() => {
+    try {
+      const saved = localStorage.getItem('dropRandom')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })          // { 'cat.subKey': bool }
+  const [dropRandomFixed, setDropRandomFixed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('dropRandomFixed')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  }) // { 'cat.subKey': en }
   const [dropSearch, setDropSearch] = useState({})           // { 'cat.subKey': string }
+  const [promptOrder, setPromptOrder] = useState([])
+  const [isDraggingTag, setIsDraggingTag] = useState(false)
 
   // 텍스트 모드 state
   const [textPrompt, setTextPrompt] = useState('')
   const [textRandom, setTextRandom] = useState({})           // { cat: bool }
   const [textRandomFixed, setTextRandomFixed] = useState({}) // { cat: en }
+  const [globalSearch, setGlobalSearch] = useState('')
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
+  const [openSubs, setOpenSubs] = useState(new Set())
 
   // 프로그레스
   const { progress, statusText, running, error, run } = useSSE()
@@ -257,6 +302,16 @@ export default function GeneratePage() {
   const [selectedNav, setSelectedNav] = useState(null)
   const catRefs = useRef({})
   const subRefs = useRef({})
+
+  // 초기 state 선언 시 localStorage에서 복원
+
+  
+
+  
+
+  const sensors = useSensors(useSensor(PointerSensor, {
+    activationConstraint: { distance: 5 }  // 드래그 최소 임계점 (px)
+  }))
 
   // ── 체크포인트 ──
   const { data: cpData } = useQuery({
@@ -274,10 +329,43 @@ export default function GeneratePage() {
     queryKey: ['constants'],
     queryFn: () => client.get('/api/system/constants').then(r => r.data),
   })
+
   useEffect(() => {
     if (constants?.negative_base && !negative) setNegative(constants.negative_base)
   }, [constants])
 
+  // 프롬프트 dnd useEffect
+  useEffect(() => {
+  setPromptOrder(prev => {
+    const current = []
+    for (const cat of CATEGORY_ORDER) {
+      for (const sub of (CATEGORY_CONFIG[cat] || [])) {
+        const subKey = `${cat}.${sub.key}`
+        for (const en of (dropSelections[subKey] || [])) {
+          current.push({ subKey, en })
+        }
+      }
+    }
+    const currentSet = new Set(current.map(t => `${t.subKey}::${t.en}`))
+    const prevFiltered = prev.filter(t => currentSet.has(`${t.subKey}::${t.en}`))
+    const prevSet = new Set(prevFiltered.map(t => `${t.subKey}::${t.en}`))
+    const newTags = current.filter(t => !prevSet.has(`${t.subKey}::${t.en}`))
+    return [...prevFiltered, ...newTags]
+  })
+}, [dropSelections])
+
+  // 태그 리스트 변동 시 저장
+  useEffect(() => {
+    localStorage.setItem('dropSelections', JSON.stringify(dropSelections))
+  }, [dropSelections])
+
+  useEffect(() => {
+    localStorage.setItem('dropRandom', JSON.stringify(dropRandom))
+  }, [dropRandom])
+
+  useEffect(() => {
+    localStorage.setItem('dropRandomFixed', JSON.stringify(dropRandomFixed))
+  }, [dropRandomFixed])
 
   // ── 태그 JSON 로드 ──
   const { data: tagFileData = {} } = useQuery({
@@ -313,23 +401,17 @@ export default function GeneratePage() {
     return map
   }, [tagFileData])
 
+  // 전체 가중치 로드 (staleTime: Infinity)
+  const { data: allWeights = {} } = useQuery({
+    queryKey: ['all-tag-weights'],
+    queryFn: () => historyApi.allTagWeights().then(r => r.data),
+    staleTime: Infinity,
+  })
 
   // ── 미리보기 ──
   const dropPrompt = useMemo(() => {
-    const parts = []
-    for (const cat of CATEGORY_ORDER) {
-      for (const sub of (CATEGORY_CONFIG[cat] || [])) {
-        const subKey = `${cat}.${sub.key}`
-        if (dropRandom[subKey]) {
-          const fixed = dropRandomFixed[subKey]
-          if (fixed) parts.push(fixed)
-        } else {
-          parts.push(...(dropSelections[subKey] || []))
-        }
-      }
-    }
-    return parts.join(', ')
-  }, [dropSelections, dropRandom, dropRandomFixed])
+    return promptOrder.map(t => t.en).join(', ')
+  }, [promptOrder])
 
   const textFinalPrompt = useMemo(() => {
     const parts = []
@@ -345,6 +427,33 @@ export default function GeneratePage() {
 
   const finalPrompt = mode === 'dropdown' ? dropPrompt : textFinalPrompt
 
+    // ── 전체 태그 플랫 리스트 (useMemo, koMap 선언 다음) ──
+  const allTagsFlat = useMemo(() => {
+    const result = []
+    for (const cat of CATEGORY_ORDER) {
+      for (const sub of (CATEGORY_CONFIG[cat] || [])) {
+        const subKey = `${cat}.${sub.key}`
+        const fileData = tagFileData[cat] || {}
+        const list = getSubcategoryTags(fileData, sub.key)
+        for (const t of list) {
+          result.push({ ...t, cat, subKey, subLabel: sub.label })
+        }
+      }
+    }
+    return result
+  }, [tagFileData])
+
+  // ── 전체 검색 결과 ──
+  const globalResults = useMemo(() => {
+    if (!globalSearch.trim()) return []
+    const fuse = new Fuse(allTagsFlat, {
+      keys: ['en', 'ko'],
+      threshold: 0.4,
+      distance: 100,
+      includeScore: true,
+    })
+    return fuse.search(globalSearch).map(r => r.item).slice(0, 30)
+  }, [globalSearch, allTagsFlat])
 
   // ── 생성 ──
   async function generate() {
@@ -396,7 +505,6 @@ export default function GeneratePage() {
     )
   }
 
-
   // ── 피드백 저장 ──
   async function saveFeedback() {
     if (!result) return
@@ -413,7 +521,43 @@ export default function GeneratePage() {
     setTags([])
   }
 
+  // 서브 카테고리 열고 닫기
+  function toggleSub(subKey) {
+    setOpenSubs(prev => {
+      const s = new Set(prev)
+      s.has(subKey) ? s.delete(subKey) : s.add(subKey)
+      return s
+    })
+  }
 
+  // 드래그 앤 드롭
+  function SortableTag({ id, label, onRemove, onClick }) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+    return (
+      <div ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.5 : 1,
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          background: 'var(--bg3)', border: '1px solid var(--accent)',
+          borderRadius: 4, padding: '2px 6px', fontSize: 11,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          color: 'var(--accent)',
+        }}
+        {...attributes}
+        {...listeners}
+        onClick={onClick}  // ← 클릭 시 제거
+      >
+        {label}
+        <button
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onRemove() }}
+          style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 11 }}
+        >×</button>
+      </div>
+    )
+  }
   // ── JSX ──
   return (
     <div style={{ display: 'flex', width: '100%', height: '100%', flex: 1, overflow: 'hidden' }}>
@@ -471,6 +615,62 @@ export default function GeneratePage() {
               </button>
             ))}
           </div>
+          
+          {/* 전체 태그 검색 */}
+          <div style={{ position: 'relative' }}>
+            <input
+              placeholder="🔍 전체 태그 검색..."
+              value={globalSearch}
+              onChange={e => { setGlobalSearch(e.target.value); setGlobalSearchOpen(true) }}
+              onFocus={() => setGlobalSearchOpen(true)}
+              onBlur={() => setTimeout(() => setGlobalSearchOpen(false), 150)}
+              style={{ fontSize: 12 }}
+            />
+            {globalSearchOpen && globalResults.length > 0 && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+                background: 'var(--bg2)', border: '1px solid var(--border)',
+                borderRadius: 6, marginTop: 2,
+                maxHeight: 280, overflowY: 'auto',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+              }}>
+                {globalResults.map((t, i) => {
+                  const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
+                  return (
+                    <div key={`${t.subKey}-${t.en}-${i}`}
+                      onMouseDown={() => {
+                        const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
+                        setDropSelections(prev => {
+                          const cur = prev[t.subKey] || []
+                          if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
+                          if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
+                          return { ...prev, [t.subKey]: [...cur, t.en] }
+                        })
+                        setGlobalSearch('')
+                        setGlobalSearchOpen(false)
+                      }}
+                      style={{
+                        padding: '6px 10px', cursor: 'pointer', fontSize: 11,
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        background: isSelected ? 'var(--bg3)' : 'transparent',
+                        borderBottom: '1px solid var(--border)',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg3)'}
+                      onMouseLeave={e => e.currentTarget.style.background = isSelected ? 'var(--bg3)' : 'transparent'}
+                    >
+                      <span style={{ color: 'var(--accent)', fontSize: 10, minWidth: 80 }}>
+                        {t.cat} / {t.subLabel}
+                      </span>
+                      <span style={{ color: isSelected ? 'var(--accent)' : 'var(--text)' }}>
+                        {t.ko ? `${t.ko} (${t.en})` : t.en}
+                      </span>
+                      {isSelected && <span style={{ marginLeft: 'auto', color: 'var(--accent)', fontSize: 10 }}>✓</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
           {/* 1차 카테고리 버튼 */}
           {mode === 'dropdown' && (
@@ -496,7 +696,19 @@ export default function GeneratePage() {
                 <button key={sub.key} className="btn btn-ghost"
                   style={{ fontSize: 11, padding: '2px 6px' }}
                   onClick={() => {
-                    subRefs.current[`${selectedNav}.${sub.key}`]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    const subKey = `${selectedNav}.${sub.key}`
+                    setOpenSubs(prev => {
+                      const s = new Set(prev)
+                      if (s.has(subKey)) {
+                        s.delete(subKey)
+                        return s
+                      }
+                      s.add(subKey)
+                      return s
+                    })
+                    setTimeout(() => {
+                      subRefs.current[subKey]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }, 50)
                   }}>
                   {sub.label}
                 </button>
@@ -506,50 +718,80 @@ export default function GeneratePage() {
 
           {/* 최종 프롬프트 미리보기 */}
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>최종 프롬프트 미리보기</div>
-            {mode === 'dropdown' ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 80, overflowY: 'auto' }}>
-                {(() => {
-                  const items = []
-                  for (const cat of CATEGORY_ORDER) {
-                    for (const sub of (CATEGORY_CONFIG[cat] || [])) {
-                      const subKey = `${cat}.${sub.key}`
-                      if (dropRandom[subKey]) {
-                        const fixed = dropRandomFixed[subKey]
-                        if (fixed) items.push({ subKey, en: fixed, isRandom: true })
-                      } else {
-                        for (const en of (dropSelections[subKey] || [])) {
-                          items.push({ subKey, en, isRandom: false })
-                        }
-                      }
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>최종 프롬프트 미리보기</span>
+              <button className="btn btn-ghost"
+                style={{ fontSize: 11, padding: '2px 8px' }}
+                onClick={() => navigator.clipboard.writeText(promptOrder.map(t => t.en).join(', '))}>
+                📋 복사
+              </button>
+            </div>
+            {/* 최종 프롬프트 미리보기 — 드롭박스 모드 */}
+            {mode === 'dropdown' && (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={() => setIsDraggingTag(true)}
+                onDragEnd={({ active, over }) => {
+                  setIsDraggingTag(false)
+                  if (!over || active.id === over.id) return
+                  setPromptOrder(prev => {
+                    const oldIdx = prev.findIndex(t => `${t.subKey}::${t.en}` === active.id)
+                    const newIdx = prev.findIndex(t => `${t.subKey}::${t.en}` === over.id)
+                    return arrayMove(prev, oldIdx, newIdx)
+                  })
+                }}
+              >
+                <SortableContext
+                  items={promptOrder.map(t => `${t.subKey}::${t.en}`)}
+                  strategy={rectSortingStrategy}
+                >
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 80, }}>
+                    {promptOrder.length === 0
+                      ? <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>비어있음</span>
+                      : promptOrder.map(({ subKey, en }) => {
+                          // 랜덤 태그인지 체크
+                          const isRandom = dropRandom[subKey] && dropRandomFixed[subKey] === en
+                          // 한글 라벨 찾기
+                          const cat = subKey.split('.')[0]
+                          const fileData = tagFileData[cat] || {}
+                          const subConf = (CATEGORY_CONFIG[cat] || []).find(s => `${cat}.${s.key}` === subKey)
+                          const list = subConf ? getSubcategoryTags(fileData, subConf.key) : []
+                          const item = list.find(t => t.en === en)
+                          const label = item ? `${item.ko}(${en})` : en
+
+                          return (
+                           <SortableTag
+                            key={`${subKey}::${en}`}
+                            id={`${subKey}::${en}`}
+                            label={label}
+                            onClick={() => {
+                              if (isRandom) {
+                                setDropRandom(prev => ({ ...prev, [subKey]: false }))
+                                setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
+                              } else {
+                                setDropSelections(prev => ({
+                                  ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
+                                }))
+                              }
+                            }}
+                            onRemove={() => {
+                              if (isRandom) {
+                                setDropRandom(prev => ({ ...prev, [subKey]: false }))
+                                setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
+                              } else {
+                                setDropSelections(prev => ({
+                                  ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
+                                }))
+                              }
+                            }}
+                          />
+                          )
+                        })
                     }
-                  }
-                  if (!items.length) return <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>비어있음</span>
-                  return items.map(({ subKey, en, isRandom }, i) => (
-                    <button key={`${subKey}-${en}-${i}`} className="btn btn-ghost"
-                      style={{ fontSize: 11, padding: '2px 8px',
-                        borderColor: isRandom ? 'var(--text-dim)' : 'var(--accent)',
-                        color: isRandom ? 'var(--text-dim)' : 'var(--accent)',
-                      }}
-                      onClick={() => {
-                        if (isRandom) {
-                          setDropRandom(prev => ({ ...prev, [subKey]: false }))
-                          setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
-                        } else {
-                          setDropSelections(prev => ({
-                            ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
-                          }))
-                        }
-                      }}>
-                      {en} ×
-                    </button>
-                  ))
-                })()}
-              </div>
-            ) : (
-              <div style={{ fontSize: 11, color: 'var(--text)', wordBreak: 'break-all' }}>
-                {finalPrompt || <span style={{ color: 'var(--text-dim)' }}>비어있음</span>}
-              </div>
+                  </div>
+                </SortableContext>
+              </DndContext>
             )}
           </div>
         </div>
@@ -580,26 +822,42 @@ export default function GeneratePage() {
                     const isDisabled = disabledSubs.has(subKey)
                     const isRandom = dropRandom[subKey] || false
                     const selected = dropSelections[subKey] || []
-                    const search = dropSearch[subKey] || ''
+                    const isOpen = openSubs.has(subKey)
                     const list = getSubcategoryTags(fileData, sub.key)
-                    const filtered = list.filter(t =>
-                      t.en.includes(search) || t.ko.includes(search)
-                    )
+
+                    const topTags = !isOpen ? [] : list
+                      .filter(t => (allWeights[t.en] || 0) > 0)
+                      .sort((a, b) => (allWeights[b.en] || 0) - (allWeights[a.en] || 0))
+                      .slice(0, 5)
 
                     return (
                       <div key={subKey} ref={el => subRefs.current[subKey] = el} style={{
-                        padding: 8, borderRadius: 6,
+                        borderRadius: 6,
                         background: isDisabled ? 'var(--bg)' : 'var(--bg3)',
                         opacity: isDisabled ? 0.4 : 1,
                         pointerEvents: isDisabled ? 'none' : 'auto',
+                        marginBottom: 4,
                       }}>
-                        {/* 서브 헤더 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        {/* 2차 카테고리 헤더 — 항상 표시 */}
+                        <div
+                          onClick={() => !isDisabled && toggleSub(subKey)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            padding: '6px 8px', cursor: 'pointer',
+                            borderRadius: isOpen ? '6px 6px 0 0' : 6,
+                            borderBottom: isOpen ? '1px solid var(--border)' : 'none',
+                          }}
+                        >
                           <span style={{ fontSize: 11, color: 'var(--text-dim)', flex: 1 }}>
                             {sub.label}
                             {!sub.multi && <span style={{ color: 'var(--accent)', marginLeft: 4, fontSize: 10 }}>단일</span>}
+                          <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>{isOpen ? '▼' : '▶'}</span>
                           </span>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, margin: 0, cursor: 'pointer' }}>
+                          {/* 랜덤 체크박스 — 항상 표시 */}
+                          <label
+                            style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, margin: 0, cursor: 'pointer' }}
+                            onClick={e => e.stopPropagation()}
+                          >
                             <input type="checkbox" checked={isRandom}
                               onChange={e => {
                                 const checked = e.target.checked
@@ -617,9 +875,9 @@ export default function GeneratePage() {
                           </label>
                         </div>
 
-                        {/* 선택된 배지 */}
+                        {/* 선택된 배지 — 항상 표시 */}
                         {selected.length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 4 }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, padding: '4px 8px' }}>
                             {selected.map(en => {
                               const item = list.find(t => t.en === en)
                               return (
@@ -638,38 +896,75 @@ export default function GeneratePage() {
                           </div>
                         )}
 
-                        {/* 검색 + 후보 */}
-                        {!isRandom && (
-                          <>
-                            <input placeholder="한글 또는 영어 검색..."
-                              value={search}
-                              onChange={e => setDropSearch(prev => ({ ...prev, [subKey]: e.target.value }))}
-                              style={{ marginBottom: 4, fontSize: 11 }} />
+                        {/* 펼쳐진 상태에서만 표시 */}
+                        {isOpen && !isRandom && (
+                          <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {/* ★ 추천 칩 */}
+                            {topTags.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
+                                <span style={{ fontSize: 13, marginRight: 2 }}>
+                                  <span style={{ color: 'var(--gold-chip)' }}>★</span> 자주 사용하는 태그
+                                </span>
+                                {topTags.map(t => {
+                                  const isSelected = selected.includes(t.en)
+                                  return (
+                                    <button key={t.en} className="btn btn-ghost"
+                                      style={{
+                                        fontSize: 10, padding: '1px 6px',
+                                        borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+                                        color: isSelected ? 'var(--accent)' : 'var(--text)',
+                                      }}
+                                      onClick={() => {
+                                        setDropSelections(prev => {
+                                          const cur = prev[subKey] || []
+                                          if (isSelected) return { ...prev, [subKey]: cur.filter(e => e !== t.en) }
+                                          if (!sub.multi) return { ...prev, [subKey]: [t.en] }
+                                          return { ...prev, [subKey]: [...cur, t.en] }
+                                        })
+                                      }}>
+                                      {t.ko || t.en}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
+
+                            {/* 태그 후보 목록 */}
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, maxHeight: 120, overflowY: 'auto', padding: '2px 0' }}>
-                              {filtered.map(t => {
-                                const isSelected = selected.includes(t.en)
-                                return (
-                                  <button key={t.en} className="btn btn-ghost"
-                                    style={{ fontSize: 11, padding: '2px 6px',
-                                      ...(isSelected ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
-                                    onClick={() => {
-                                      setDropSelections(prev => {
-                                        const cur = prev[subKey] || []
-                                        if (isSelected) return { ...prev, [subKey]: cur.filter(e => e !== t.en) }
-                                        if (!sub.multi) return { ...prev, [subKey]: [t.en] }
-                                        return { ...prev, [subKey]: [...cur, t.en] }
-                                      })
-                                      setDropSearch(prev => ({ ...prev, [subKey]: '' }))
-                                    }}>
-                                    {t.ko}({t.en})
-                                  </button>
-                                )
-                              })}
-                              {search === '' && list.length === 0 && (
+                              {(() => {
+                                const fuse = buildFuse(list)
+                                const filtered = list  // 검색은 전체 검색창으로 통합됐으니 전체 표시
+                                return filtered.map(t => {
+                                  const isSelected = selected.includes(t.en)
+                                  return (
+                                    <button key={t.en} className="btn btn-ghost"
+                                      style={{ fontSize: 11, padding: '2px 6px',
+                                        ...(isSelected ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                                      onClick={() => {
+                                        setDropSelections(prev => {
+                                          const cur = prev[subKey] || []
+                                          if (isSelected) return { ...prev, [subKey]: cur.filter(e => e !== t.en) }
+                                          if (!sub.multi) return { ...prev, [subKey]: [t.en] }
+                                          return { ...prev, [subKey]: [...cur, t.en] }
+                                        })
+                                      }}>
+                                      {t.ko}({t.en})
+                                    </button>
+                                  )
+                                })
+                              })()}
+                              {list.length === 0 && (
                                 <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>데이터 없음</span>
                               )}
                             </div>
-                          </>
+                          </div>
+                        )}
+
+                        {/* 랜덤 고정값 표시 */}
+                        {isOpen && isRandom && dropRandomFixed[subKey] && (
+                          <div style={{ padding: '6px 8px', fontSize: 11, color: 'var(--text-dim)' }}>
+                            고정: {dropRandomFixed[subKey]}
+                          </div>
                         )}
                       </div>
                     )
