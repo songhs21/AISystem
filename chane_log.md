@@ -75,6 +75,62 @@
 ## v0.10.1 — 외부 접속
 - ngrok으로 외부 접속 시도 → 기 사용중인 WireGuard VPN으로 외부 접속 안정화
 
+## CHANGELOG v0.10.2 — 미등록 태그 자동 동기화
+
+### Context
+- 피드백 누적에 따라 feedback 테이블 liked_tags에 tag_meta.json에 등록되지 않은 태그들이 지속적으로 발생. 매 작업 시 수작업으로 DB 태그 추출 → 중복 제거 → JSON 편집 과정을 반복해야 했음.
+
+- Problem
+미등록 태그 확인 자체가 별도 스크립트(db_tag_extracting_code.py) 실행 필요
+추출 결과를 보고 tag_meta.json을 직접 편집하는 품이 과도함
+누락된 채로 방치되면 태그 한국어 표시, 카테고리 분류 등 전반적인 UI 품질 저하
+
+- Options
+기존 방식 유지 (수동 스크립트 실행 + 수동 JSON 편집)
+앱 시작 시 자동 감지 → unregistered 카테고리에 자동 삽입
+
+- Decision Criteria
+수작업 최소화
+기존 tag_meta.json 구조 유지
+나중에 번역/분류는 수동으로 할 수 있어야 함
+
+- Decision
+Option 2 채택. database.sync_unregistered_tags() 함수 신설, main.py system_initialized 블록에서 앱 시작 1회 호출.
+
+- Reasoning
+liked_tags만 대상 (disliked_tags는 피드백 의미가 약하고 0점 태그 다수)
+unregistered 카테고리로 격리해두면 번역/분류 작업 시 한눈에 파악 가능
+tag_meta에 이미 있는 태그는 스킵하므로 중복 삽입 없음
+
+- Outcome
+database.py — sync_unregistered_tags(tag_meta_path, tag_meta) 추가
+main.py — system_initialized 블록에 호출 추가
+앱 시작 시 미등록 태그 자동으로 tag_meta.json["unregistered"]에 삽입됨
+
+- Trade-off
+unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편집 품은 완전히 제거됨.
+
+
+## v0.10.3 patch — ControlNet 인페인팅 (detail 모드) 정상화
+### 수정 내용: inpaint_detail_workflow.json
+
+- 노드 21 VAEEncode → VAEEncodeForInpaint → InpaintModelConditioning으로 최종 교체
+- noise_mask: true 추가
+- 노드 8 KSampler positive/negative를 ["16",0], ["16",1]로 연결, latent를 ["21",2]로 연결
+- 노드 16 ControlNet positive/negative를 ["21",0], ["21",1]로 연결
+- 노드 22 channel "alpha" → "red"
+
+### gradio_inpaint.py
+
+- 마스크 저장 convert("L") → convert("RGB") (channel: red 호환)
+- 마스크 반전 255 - cropped_mask → cropped_mask (noise_mask 방향 일치)
+
+- 디버깅 과정에서 확인된 핵심 원인:
+
+- VAEEncodeForInpaint + ControlNet 동시 사용 시 두 인페인팅 방식 충돌 → 변화 없음
+- 마스크를 레이어 분리 없이 한 레이어에 여러 영역 칠하면 BBox가 전체를 감싸 크롭 비율 붕괴 (2780x405 → 512x74)
+- InpaintModelConditioning의 noise_mask는 MASK 타입이 아닌 BOOLEAN
+
 ## v0.11 — Gradio 인페인팅 파이프라인
 - Gradio 서브프로세스 기반 인페인팅 UI 분리
 - inpainting 테이블 추가
@@ -92,11 +148,6 @@
 - tag_meta.json FileNotFoundError 폴백 처리 (빈 dict로 graceful degradation)
 - tag/ 폴더 gitignore 추가 + example 파일 구조화
 
-## v0.12 — gen_id 기반 파일명 통일 (작업 예정)
-- gen_id 선발급 방식으로 생성 타이밍 확정
-- 파일명 ComfyUI_{gen_id}_generated / inpainting_{count} 통일
-- sync_unregistered_images 제거
-- feedback created_at KST 수정
 
 ## v0.12 — gen_id 기반 파일명 통일 + 버그 수정
 
@@ -121,3 +172,67 @@
 - 태그 버튼 2열(좋/싫) → 3열(좋/싫/패) 변경 (생성 탭 + 히스토리 팝오버)
 - 히스토리 필터에 패스 유형 필터 추가 (그림체/인체 디테일/마음에 들지 않음)
 - 히스토리 새로고침 버튼 `history_dirty = True` 누락 버그 수정
+
+## v1.0 상세 — ST -> React 마이그레이션
+- core/ 레이어 분리 (image/generate, preference, tag, system/watcher, comfy_manager)
+- api/ 라우터 (sd, history, inpaint, system)
+- React 프론트 (생성/히스토리/LLM 탭, ImageViewer 줌/패닝, InpaintCanvas 오버레이)
+- ComfyUI 자동 기동/종료, SD/LLM VRAM 스위칭
+- 로그 파일 기반 SSE 실시간 스트리밍 (LogOverlay)
+- 히스토리 피드백 편집 오버레이 슬라이드
+- 프롬프트 태그 배지 표시 (PromptTags)
+
+## v1.1.1 — UI 개선 및 Electron 설정
+
+### GeneratePage.jsx
+- 3단 레이아웃 (이미지뷰어 28% / 드롭박스 flex:1 / 부정프롬프트 18%)
+- 고정 헤더 영역 분리: 모드 전환 버튼 + 1차 카테고리 네비 + 2차 카테고리 네비 + 최종 프롬프트 미리보기
+- 1차 카테고리 클릭 → 해당 위치 scrollIntoView, 2차 카테고리 클릭 →  서브카테고리 위치 scrollIntoView
+- catRefs / subRefs useRef 추가
+- 태그 후보 목록 maxHeight 120px 스크롤 (slice 제한 제거)
+- 태그 패널 오버레이 width 퍼센트화 (30% / 40px)
+- 고정값 → 퍼센트 전환 (이미지뷰어 28%, 부정프롬프트 18%)
+- 최종 프롬프트 미리보기 고정 헤더로 이동, 버튼화 (클릭 시 선택 해제)
+- electron/main.cjs — Electron 앱 모드 실행 설정 완료
+- frontend/package.json — electron:dev 스크립트 추가, concurrently 설치
+- start.bat — Electron 실행 방식으로 교체
+
+## v1.1.2 — 태그 시스템 개선 + 드롭박스 UX 개선
+
+---
+
+### tag_to_cat 카테고리 서버 반영 (B안)
+
+
+- preference.py의 get_all_generations(), get_generation_by_id() 반환 시 tags 각 항목에 category 필드를 서버에서 직접 붙여서 반환하도록 변경.
+- _attach_category() 헬퍼 추가, tag.py의 tag_to_cat 딕셔너리 재활용.
+- 클라이언트 추가 요청 없이 기존 generations 응답에 포함시키는 B안을 선택한 이유는 "불필요한 로드나 부하는 줄일 수 있으면 줄이는 게 맞다"는 판단에 따른 것.
+```
+#### 변경 파일: preference.py, core/image/tag.py (import 추가)
+```
+---
+
+### 전체 태그 가중치 선로드 + ★ 추천 칩
+
+
+- /api/history/tag-weights-all 엔드포인트 추가 (preference.py get_all_tag_weights() 신규).
+- GeneratePage 마운트 시 전체 가중치를 한 번에 로드해 React Query staleTime: Infinity로 캐시 유지.
+- 각 서브카테고리 검색창 위에 가중치 상위 5개 태그를 ★ 칩으로 표시, 클릭 시 즉시 선택.
+- 전체 선로드 방식(A안)을 선택한 이유는 "지금도 접속할 때 그렇게 오래 걸리는 건 아니라서" lazy 방식의 복잡도를 추가할 필요가 없다는 판단.
+- ★ 칩 표시 방식은 "자주 사용 태그를 검색 필드 밑에 띄워주는 형식으로 생각하고 있었다"는 기존 구상과 일치.
+```
+#### 변경 파일: preference.py, history.py, client.js, GeneratePage.jsx
+```
+---
+
+### 드롭박스 검색 UX 3종 개선
+
+
+- 퍼지 검색(fuse.js), 검색창 엔터로 태그 직접 추가, 전체 카테고리 통합 검색창 추가.
+- 퍼지 검색 도입 이유는 "두 글자 순서가 바뀌거나 누락, 비슷한 태그가 검색되지 않을 수 있어서 개선하고 싶다"는 실사용 불편에서 출발.
+- fuse.js 라이브러리를 직접 구현 대신 선택한 이유는 "나중에 추가하거나 개선할 때 더 낫고, 의존성은 setup.bat으로 자동화 가능"하다는 판단.
+- 엔터 직접 추가는 "텍스트 모드랑 왔다갔다 해야 해서 불편"한 실사용 문제 해소. - 전체 통합 검색은 "JSON 태그들을 완전히 내가 구성한 게 아니라서 어디 들어있는지 헷갈릴 때가 있다"는 필요에서 추가.
+
+```
+#### 변경 파일: GeneratePage.jsx (import Fuse, buildFuse(), allTagsFlat, globalResults, 검색창 + 후보 목록 블록 전체 교체), package.json (fuse.js 의존성 추가)
+```
