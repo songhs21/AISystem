@@ -6,9 +6,9 @@ import threading
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from config.PATH import CHECKPOINT_DIR, WORKFLOW_PATH
+from config.PATH import CHECKPOINT_DIR, WORKFLOW_PATH, COMFY_INPUT
 from config.constants import NEGATIVE_BASE, MODEL_RESOLUTION
-from core.image.generate import run_comfy, run_upscale, load_upscale_workflow, is_comfy_alive, run_i2i
+from core.image.generate import run_comfy, run_upscale, load_upscale_workflow, is_comfy_alive, run_i2i, run_i2i_mask
 from core.image.preference import save_generation_start, get_generation_by_prompt_id, update_upscaled_image
 from core.system.watcher import watch_comfy
 from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comfy
@@ -20,7 +20,9 @@ from config.PATH import (
 )
 import random
 from functools import lru_cache
-import logging
+import uuid
+from typing import Annotated
+from fastapi import File, UploadFile, Form
 
 router = APIRouter(prefix="/api/sd", tags=["sd"])
 
@@ -242,5 +244,46 @@ def i2i(req: I2IRequest):
                     yield f"event: done\ndata: {json.dumps({'image_path': event['image_path'], 'filename': filename})}\n\n"
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/i2i-mask")
+async def i2i_mask(
+    image_path:  Annotated[str,   Form()],
+    mask_path:   Annotated[str,   Form()] = "",
+    checkpoint:  Annotated[str,   Form()] = "",
+    prompt:      Annotated[str,   Form()] = "",
+    negative:    Annotated[str,   Form()] = "",
+    denoise:     Annotated[float, Form()] = 0.5,
+    seed:        Annotated[int,   Form()] = -1,
+    mask_file:   UploadFile = File(None),
+):
+    # 마스크 blob을 임시 파일로 저장
+    tmp_mask_path = None
+    if mask_file:
+        mask_bytes = await mask_file.read()
+        tmp_mask_path = os.path.join(COMFY_INPUT, f"i2i_mask_tmp_{uuid.uuid4().hex}.png")
+        with open(tmp_mask_path, "wb") as f:
+            f.write(mask_bytes)
+
+    def stream():
+        try:
+            for event in run_i2i_mask(
+                image_path, tmp_mask_path or mask_path,
+                checkpoint, prompt, negative, denoise, seed
+            ):
+                if event["type"] == "progress":
+                    yield f"event: progress\ndata: {json.dumps({'value': event['value'], 'text': event['text']})}\n\n"
+                elif event["type"] == "done":
+                    filename = os.path.basename(event["image_path"])
+                    yield f"event: done\ndata: {json.dumps({'image_path': event['image_path'], 'filename': filename})}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
+        finally:
+            if tmp_mask_path and os.path.exists(tmp_mask_path):
+                try:
+                    os.remove(tmp_mask_path)
+                except:
+                    pass
 
     return StreamingResponse(stream(), media_type="text/event-stream")

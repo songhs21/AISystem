@@ -37,6 +37,7 @@ export const historyApi = {
   comfyKill: () => client.post('/api/system/comfy/kill'),
   allTagWeights: () => client.get('/api/history/all-tag-weights'),
   i2iUrl: () => `${API_BASE}/api/sd/i2i`,
+  i2iMaskUrl: () => `${API_BASE}/api/sd/i2i-mask`,
 }
 
 // ── 인페인팅 ──────────────────────────────────────────────

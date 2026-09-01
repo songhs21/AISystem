@@ -21,7 +21,9 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-
+import { useCallback
+  
+ } from 'react'
 // ─── 카테고리 순서 ───────────────────────────────────────────────
 const CATEGORY_ORDER = [
   'people', 'composition', 'character', 'hairstyle', 'body', 'Attire',
@@ -293,7 +295,7 @@ export default function GeneratePage() {
   const [globalSearch, setGlobalSearch] = useState('')
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [openSubs, setOpenSubs] = useState(new Set())
-    // i2i 모드 state
+  // i2i 모드 state
   const [i2iBaseImage, setI2iBaseImage] = useState(null)   // { path, filename, src }
   const [i2iMaskImage, setI2iMaskImage] = useState(null)
   const [i2iRefImage, setI2iRefImage]   = useState(null)
@@ -303,6 +305,10 @@ export default function GeneratePage() {
   const [i2iSeed, setI2iSeed]           = useState(-1)
   const [showHistoryPicker, setShowHistoryPicker] = useState(false) // 히스토리 이미지 피커
   const [i2iOverlay, setI2iOverlay]     = useState(null)  // 오버레이로 볼 이미지 src
+  // i2i mask
+  const [showMaskDraw, setShowMaskDraw]   = useState(false)
+  const [i2iMaskBlob, setI2iMaskBlob]     = useState(null)  // 완료된 마스크 blob
+  const [i2iMaskSrc, setI2iMaskSrc]       = useState(null)  // 썸네일용 src
 
   // 프로그레스
   const { progress, statusText, running, error, run } = useSSE()
@@ -503,26 +509,44 @@ export default function GeneratePage() {
   }
 
   // ── 생성 ──
-    async function generate() {
-      setResult(null)
-      setTags([])
-      setLikedTags(new Set())
-      setDislikedTags(new Set())
-      setFalseTags(new Set())
+  async function generate() {
+    setResult(null)
+    setTags([])
+    setLikedTags(new Set())
+    setDislikedTags(new Set())
+    setFalseTags(new Set())
 
-      if (mode === 'i2i') {
-        if (!i2iBaseImage) { alert('베이스 이미지를 선택해주세요'); return }
+    if (mode === 'i2i') {
+      if (!i2iBaseImage) { alert('베이스 이미지를 선택해주세요'); return }
 
-        // 히스토리 이미지면 path 직접 사용, 업로드면 서버로 전송 필요
-        let imagePath = i2iBaseImage.path || ''
+      // 히스토리 이미지면 path 직접 사용, 업로드면 서버로 전송 필요
+      let imagePath = i2iBaseImage.path || ''
 
-        if (!i2iBaseImage.fromHistory) {
-          // 파일 업로드 → /api/system/upload 로 전송 (추후 엔드포인트 추가 필요)
-          // 임시: COMFY_INPUT에 저장하는 엔드포인트 필요
-          alert('파일 업로드 엔드포인트 미구현 — 히스토리 이미지를 사용해주세요')
-          return
-        }
+      if (!i2iBaseImage.fromHistory) {
+        // 파일 업로드 → /api/system/upload 로 전송 (추후 엔드포인트 추가 필요)
+        // 임시: COMFY_INPUT에 저장하는 엔드포인트 필요
+        alert('파일 업로드 엔드포인트 미구현 — 히스토리 이미지를 사용해주세요')
+        return
+      }
 
+      if (i2iMaskBlob) {
+        // 마스크 있으면 i2i-mask 엔드포인트
+        const form = new FormData()
+        form.append('image_path', imagePath)
+        form.append('checkpoint', checkpoint)
+        form.append('prompt', i2iPrompt)
+        form.append('negative', i2iNegative || negative)
+        form.append('denoise', i2iDenoise)
+        form.append('seed', i2iSeed)
+        form.append('mask_file', i2iMaskBlob, 'mask.png')
+
+        await run(
+          sdApi.i2iMaskUrl(),
+          form,
+          { onDone: async (data) => { setResult(data) } }
+        )
+      } else {
+        // 마스크 없으면 기존 i2i
         await run(
           sdApi.i2iUrl(),
           {
@@ -533,47 +557,43 @@ export default function GeneratePage() {
             denoise: i2iDenoise,
             seed: i2iSeed,
           },
-          {
-            onDone: async (data) => {
-              setResult(data)
-            }
-          }
+          { onDone: async (data) => { setResult(data) } }
         )
-        return
       }
-
-      // 기존 드롭박스 모드 생성
-      const parts = []
-      for (const cat of CATEGORY_ORDER) {
-        for (const sub of (CATEGORY_CONFIG[cat] || [])) {
-          const subKey = `${cat}.${sub.key}`
-          if (dropRandom[subKey]) {
-            const fixed = dropRandomFixed[subKey]
-            if (fixed) parts.push(fixed)
-          } else {
-            parts.push(...(dropSelections[subKey] || []))
-          }
-        }
-      }
-
-      const prompt = parts.filter(Boolean).join(', ')
-      console.log('[Generate] mode:', mode, 'prompt:', prompt)
-
-      await run(
-        sdApi.generateUrl(),
-        { prompt, negative, checkpoint },
-        {
-          onDone: async (data) => {
-            setResult(data)
-            try {
-              const gen = await historyApi.generation(data.gen_id)
-              setUsedPrompt(gen.data.prompt || '')
-              setTags(gen.data.tags || [])
-            } catch(e) { console.error('태그 조회 실패:', e) }
-          }
-        }
-      )
     }
+
+  // 기존 드롭박스 모드 생성
+  const parts = []
+  for (const cat of CATEGORY_ORDER) {
+    for (const sub of (CATEGORY_CONFIG[cat] || [])) {
+      const subKey = `${cat}.${sub.key}`
+      if (dropRandom[subKey]) {
+        const fixed = dropRandomFixed[subKey]
+        if (fixed) parts.push(fixed)
+      } else {
+        parts.push(...(dropSelections[subKey] || []))
+      }
+    }
+  }
+
+  const prompt = parts.filter(Boolean).join(', ')
+  console.log('[Generate] mode:', mode, 'prompt:', prompt)
+
+  await run(
+    sdApi.generateUrl(),
+    { prompt, negative, checkpoint },
+    {
+      onDone: async (data) => {
+        setResult(data)
+        try {
+          const gen = await historyApi.generation(data.gen_id)
+          setUsedPrompt(gen.data.prompt || '')
+          setTags(gen.data.tags || [])
+        } catch(e) { console.error('태그 조회 실패:', e) }
+      }
+    }
+  )
+}
 
   // ── 피드백 저장 ──
   async function saveFeedback() {
@@ -1090,9 +1110,12 @@ export default function GeneratePage() {
                 {/* 마스크 */}
                 <I2iSlot
                   label="마스크"
-                  value={i2iMaskImage}
-                  onUpload={e => handleI2iUpload(e, setI2iMaskImage)}
-                  onRemove={() => setI2iMaskImage(null)}
+                  value={i2iMaskSrc ? { src: i2iMaskSrc, filename: '마스크' } : null}
+                  onDraw={() => {
+                    if (!i2iBaseImage) { alert('베이스 이미지를 먼저 선택해주세요'); return }
+                    setShowMaskDraw(true)
+                  }}
+                  onRemove={() => { setI2iMaskBlob(null); setI2iMaskSrc(null) }}
                   onPreview={src => setI2iOverlay(src)}
                 />
 
@@ -1193,12 +1216,24 @@ export default function GeneratePage() {
           onClose={() => setShowHistoryPicker(false)}
         />
       )}
+      {/* 마스크 드로잉 오버레이 */}
+      {showMaskDraw && i2iBaseImage && (
+        <MaskDrawOverlay
+          imageSrc={i2iBaseImage.src}
+          onDone={(blob, previewSrc) => {
+            setI2iMaskBlob(blob)
+            setI2iMaskSrc(previewSrc)
+            setShowMaskDraw(false)
+          }}
+          onClose={() => setShowMaskDraw(false)}
+        />
+      )}
     </div>
   )
 }
 
 // ── i2i 슬롯 컴포넌트 ─────────────────────────────────────
-function I2iSlot({ label, required, value, onUpload, onHistoryPick, onRemove, onPreview }) {
+function I2iSlot({ label, required, value, onUpload, onHistoryPick, onDraw, onRemove, onPreview }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
@@ -1223,10 +1258,16 @@ function I2iSlot({ label, required, value, onUpload, onHistoryPick, onRemove, on
         </>
       ) : (
         <>
-          <label style={{ margin: 0 }}>
-            <input type="file" accept="image/*" onChange={onUpload} style={{ display: 'none' }} />
-            <span className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>📁 업로드</span>
-          </label>
+          {onDraw ? (
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onDraw}>
+              🖌️ 드로잉
+            </button>
+          ) : (
+            <label style={{ margin: 0 }}>
+              <input type="file" accept="image/*" onChange={onUpload} style={{ display: 'none' }} />
+              <span className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>📁 업로드</span>
+            </label>
+          )}
           {onHistoryPick && (
             <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onHistoryPick}>
               📋 히스토리
@@ -1287,6 +1328,210 @@ function HistoryImagePicker({ onPick, onClose }) {
               />
             )
           })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 마스크 드로잉 오버레이 ────────────────────────────────
+function MaskDrawOverlay({ imageSrc, onDone, onClose }) {
+  const canvasRef    = useRef(null)
+  const maskRef      = useRef(null)
+  const viewportRef  = useRef(null)
+  const stageRef     = useRef(null)
+  const [brushSize, setBrushSize] = useState(30)
+  const [drawing, setDrawing]     = useState(false)
+  const [zoom, setZoom]           = useState(1)
+  const [offset, setOffset]       = useState({ x: 0, y: 0 })
+  const panStartRef  = useRef(null)
+  const [panning, setPanning]     = useState(false)
+
+  useEffect(() => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = canvasRef.current
+      const mask   = maskRef.current
+      const viewport = viewportRef.current
+      if (!canvas || !mask || !viewport) return
+
+      canvas.width  = img.naturalWidth
+      canvas.height = img.naturalHeight
+      mask.width    = img.naturalWidth
+      mask.height   = img.naturalHeight
+
+      const vw = viewport.clientWidth
+      const vh = viewport.clientHeight
+      const scale = Math.min((vw * 0.9) / img.naturalWidth, (vh * 0.9) / img.naturalHeight)
+
+      const displayW = img.naturalWidth  * scale
+      const displayH = img.naturalHeight * scale
+
+      canvas.style.width  = `${displayW}px`
+      canvas.style.height = `${displayH}px`
+      mask.style.width    = `${displayW}px`
+      mask.style.height   = `${displayH}px`
+
+      canvas.getContext('2d').drawImage(img, 0, 0)
+      setOffset({ x: (vw - displayW) / 2, y: (vh - displayH) / 2 })
+      setZoom(1)
+    }
+    img.src = imageSrc
+  }, [imageSrc])
+
+  const handleWheel = useCallback((e) => {
+    e.preventDefault()
+    const viewport = viewportRef.current
+    const stage    = stageRef.current
+    if (!viewport || !stage) return
+
+    const viewportRect = viewport.getBoundingClientRect()
+    const stageRect    = stage.getBoundingClientRect()
+    const mouseX = e.clientX - viewportRect.left
+    const mouseY = e.clientY - viewportRect.top
+    const delta  = e.deltaY < 0 ? 1.1 : 0.9
+
+    setZoom(prevZoom => {
+      const nextZoom = Math.min(Math.max(prevZoom * delta, 0.2), 8)
+      if (nextZoom === prevZoom) return prevZoom
+      const imageX = (e.clientX - stageRect.left) / prevZoom
+      const imageY = (e.clientY - stageRect.top)  / prevZoom
+      setOffset({ x: mouseX - imageX * nextZoom, y: mouseY - imageY * nextZoom })
+      return nextZoom
+    })
+  }, [])
+
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [handleWheel])
+
+  function getPos(e) {
+    const rect   = maskRef.current.getBoundingClientRect()
+    const scaleX = maskRef.current.width  / rect.width
+    const scaleY = maskRef.current.height / rect.height
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top)  * scaleY,
+    }
+  }
+
+  function draw(e) {
+    if (!drawing || e.buttons !== 1) return
+    const { x, y } = getPos(e)
+    const ctx = maskRef.current.getContext('2d')
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.5)'
+    ctx.beginPath()
+    ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  function handleMouseDown(e) {
+    if (e.button === 1) {
+      e.preventDefault()
+      setPanning(true)
+      panStartRef.current = { mouseX: e.clientX, mouseY: e.clientY, offsetX: offset.x, offsetY: offset.y }
+    }
+  }
+
+  function handleMouseMove(e) {
+    if (panning && panStartRef.current) {
+      const s = panStartRef.current
+      setOffset({ x: s.offsetX + (e.clientX - s.mouseX), y: s.offsetY + (e.clientY - s.mouseY) })
+    }
+  }
+
+  function handleMouseUp(e) {
+    if (e.button === 1) { setPanning(false); panStartRef.current = null }
+  }
+
+  function clearMask() {
+    const ctx = maskRef.current.getContext('2d')
+    ctx.clearRect(0, 0, maskRef.current.width, maskRef.current.height)
+  }
+
+  function handleDone() {
+    const tmp = document.createElement('canvas')
+    tmp.width  = maskRef.current.width
+    tmp.height = maskRef.current.height
+    const ctx  = tmp.getContext('2d')
+    ctx.drawImage(maskRef.current, 0, 0)
+    const imageData = ctx.getImageData(0, 0, tmp.width, tmp.height)
+    const d = imageData.data
+    for (let i = 0; i < d.length; i += 4) {
+      const hasColor = d[i] > 50 || d[i+1] > 50 || d[i+2] > 50
+      d[i] = d[i+1] = d[i+2] = hasColor ? 255 : 0
+      d[i+3] = 255
+    }
+    ctx.putImageData(imageData, 0, 0)
+    tmp.toBlob(blob => onDone(blob, tmp.toDataURL()), 'image/png')
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 500,
+        background: 'rgba(0,0,0,0.7)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          display: 'flex', flexDirection: 'column',
+          background: 'var(--bg2)', borderRadius: 10,
+          border: '1px solid var(--border)',
+          overflow: 'hidden',
+          width: '90vw', height: '90vh',
+        }}
+      >
+        {/* 헤더 */}
+        <div style={{
+          height: 48, padding: '0 16px', display: 'flex', alignItems: 'center', gap: 12,
+          borderBottom: '1px solid var(--border)', flexShrink: 0,
+        }}>
+          <span style={{ fontWeight: 600 }}>🎭 마스크 드로잉</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 16 }}>
+            <label style={{ margin: 0 }}>브러시: {brushSize}</label>
+            <input type="range" min={5} max={100} value={brushSize}
+              onChange={e => setBrushSize(+e.target.value)}
+              style={{ width: 100, padding: 0, border: 'none', background: 'none' }} />
+          </div>
+          <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 8 }}>휠: 줌 / 중클릭: 패닝</span>
+          <button className="btn btn-ghost" style={{ marginLeft: 'auto' }} onClick={clearMask}>초기화</button>
+          <button className="btn btn-primary" onClick={handleDone}>완료</button>
+          <button className="btn btn-ghost" onClick={onClose}>✕</button>
+        </div>
+
+        {/* 캔버스 뷰포트 */}
+        <div
+          ref={viewportRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          style={{ flex: 1, position: 'relative', overflow: 'hidden' }}
+        >
+          <div
+            ref={stageRef}
+            style={{
+              position: 'absolute', left: 0, top: 0,
+              transformOrigin: '0 0',
+              transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+            }}
+          >
+            <canvas ref={canvasRef} style={{ display: 'block' }} />
+            <canvas ref={maskRef}
+              style={{ position: 'absolute', top: 0, left: 0, cursor: 'crosshair' }}
+              onMouseDown={e => { if (e.button === 0) setDrawing(true) }}
+              onMouseMove={draw}
+              onMouseUp={e => { if (e.button === 0) setDrawing(false) }}
+              onMouseLeave={() => setDrawing(false)}
+            />
+          </div>
         </div>
       </div>
     </div>

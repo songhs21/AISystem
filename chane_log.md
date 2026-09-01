@@ -238,7 +238,7 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 ```
 
 ## v1.2.0 I2I 모드 추가
-1. 텍스트 모드 → i2i 모드 통합
+### 1. 텍스트 모드 → i2i 모드 통합
 - 변경: 모드명 ✏️ 텍스트 → 🖼️ i2i, 텍스트 모드 UI 제거
 - 문제/배경: 텍스트 모드가 드롭박스 모드와 기능 중복, i2i 슬롯만 추가하면 통합 - 가능
 - 결정: 텍스트 모드 제거하고 i2i 모드로 대체. 프롬프트 수기 입력 유지
@@ -246,14 +246,14 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 - 대안: 텍스트 모드 유지하고 i2i를 별도 탭으로 분리 → 기각 (UI 복잡도 증가)
 ```변경 파일: GeneratePage.jsx```
 
-2. i2i 이미지 슬롯 UI
+### 2. i2i 이미지 슬롯 UI
 - 변경: 베이스/마스크/레퍼런스 슬롯 추가 (썸네일 카드, 클릭 시 오버레이)
 - 문제/배경: 이미지 원본을 그대로 띄우면 스크롤 문제 발생
 - 결정: 48px 썸네일로 표시, 클릭 시 fullscreen 오버레이. 히스토리 이미지 피커로 인페인팅/i2i 양쪽에서 접근 가능
 - 이유: 공간 효율 + 원본 확인 가능
 ```변경 파일: GeneratePage.jsx```
 
-3. i2i 해상도 제어
+### 3. i2i 해상도 제어
 - 변경: 1600px 초과 이미지 업로드 차단
 - 문제/배경: VRAM 초과 위험 방지. 업스케일 이미지 선택 시 원본보다 클 수 있음
 - 결정: 1600px 초과 시 alert 후 차단. 히스토리에서 업스케일 이미지 선택 시 원본 image_path 자동 선택 (파일명 패턴 판별)
@@ -261,9 +261,27 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 - 대안: 자동 리사이즈 → 장기 계획으로 이연
 ```변경 파일: GeneratePage.jsx```
 
-4. i2i 백엔드
+### 4. i2i 백엔드
 - 변경: run_i2i 함수 추가, /api/sd/i2i 엔드포인트 추가, i2iUrl client 등록
 - 문제/배경: 단순 i2i 워크플로우(i2i_base_workflow.json) 기반 생성 필요
 - 결정: 기존 run_inpaint 구조와 동일하게 SSE 스트림으로 구현. 노드 매핑: 1=LoadImage, 6=positive, 7=negative, 9=checkpoint, 11=KSampler(denoise), 14=SaveImage
 - 이유: 인페인팅과 동일한 SSE 패턴으로 프론트 재사용 가능
 ```변경 파일: core/image/generate.py, api/routers/sd.py, src/api/client.js```
+
+---
+## v1.2.1 I2I 마스크 지원
+
+### 5. i2i 마스크 드로잉
+- 변경: 마스크 슬롯 클릭 시 드로잉 오버레이 열림, 완료 시 마스크 blob 메모리 보관 후 생성 시 서버 전송
+- 문제/배경: i2i에서 특정 영역만 변경하려면 마스크가 필요. 기존 인페인팅과 달리 DB 저장 없이 임시 처리
+- 결정: MaskDrawOverlay 컴포넌트 추가. 브러시 드로잉 + 휠 줌 + 중클릭 패닝. 완료 버튼으로 마스크 blob 확정. 생성 시 마스크 있으면 `/api/sd/i2i-mask`, 없으면 `/api/sd/i2i` 분기
+- 이유: 인페인팅 캔버스 구조 재활용, DB 저장 불필요한 임시 마스크는 메모리에만 보관
+- 대안: InpaintCanvas 그대로 재사용 → 기각 (DB 저장 로직 포함, i2i 슬롯 UI와 맞지 않음)
+```변경 파일: GeneratePage.jsx, core/image/generate.py, api/routers/sd.py, src/api/client.js, src/hooks/useSSE.js```
+
+### 6. i2i 마스크 워크플로우
+- 변경: `i2i_mask_workflow.json` 추가, `run_i2i_mask` 함수 추가, `/api/sd/i2i-mask` 엔드포인트 추가
+- 문제/배경: 마스크 영역만 재생성하는 인페인팅 파이프라인 필요
+- 결정: 기존 인페인팅 replace 워크플로우(ControlNet inpainting 구조) 재활용. 노드 매핑: 1=LoadImage(베이스), 22=LoadImageMask, 18=positive, 19=negative, 3=checkpoint, 8=KSampler, 10=SaveImage
+- 이유: 워크플로우 구조가 동일하고 DB 저장만 제거하면 되므로 재활용이 효율적
+```변경 파일: assets/workflow/i2i_mask_workflow.json, core/image/generate.py, api/routers/sd.py, config/PATH.py```

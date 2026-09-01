@@ -22,10 +22,11 @@ export function useSSE() {
     abortRef.current = controller
 
     try {
+      const isFormData = body instanceof FormData
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        headers: isFormData ? {} : { 'Content-Type': 'application/json' },
+        body: isFormData ? body : JSON.stringify(body),
         signal: controller.signal,
       })
 

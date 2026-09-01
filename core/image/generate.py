@@ -11,7 +11,7 @@ import random
 from config.PATH import (
     COMFY_URL, COMFY_WS, COMFY_DIR, COMFY_INPUT, COMFY_OUTPUT,
     UPSCALE_WORKFLOW_DIR, INPAINTING_DIR, DETAIL_INPAINTING_DIR,
-    PYTHON_EMBEDED, I2IBASE
+    PYTHON_EMBEDED, I2IBASE, I2I_MASK
 )
 from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comfy
 from core.db import get_conn
@@ -304,5 +304,62 @@ def run_i2i(image_path: str, checkpoint: str,
     new_files = [f for f in files if os.path.getctime(f) > before]
     if not new_files:
         raise RuntimeError(f"i2i 이미지를 찾을 수 없음 (패턴: {output_prefix}*.png)")
+
+    yield {"type": "done", "image_path": max(new_files, key=os.path.getctime)}
+
+    # ── i2i 마스크 ────────────────────────────────────────────
+
+def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
+                 prompt: str, negative: str = "",
+                 denoise: float = 0.5, seed: int = -1,
+                 client_id: str = None):
+    if not is_comfy_alive():
+        yield {"type": "progress", "value": 0.0, "text": "ComfyUI 시작 중..."}
+        start_comfy()
+        wait_for_comfy()
+
+    if client_id is None:
+        client_id = str(uuid.uuid4())
+
+    filename = os.path.basename(image_path)
+    shutil.copy2(image_path, os.path.join(COMFY_INPUT, filename))
+
+    mask_filename = os.path.basename(mask_path)
+    mask_input_path = os.path.join(COMFY_INPUT, mask_filename)
+    if os.path.normpath(mask_path) != os.path.normpath(mask_input_path):
+        shutil.copy2(mask_path, mask_input_path)
+    if not wait_for_file_ready(mask_input_path):
+        raise TimeoutError("마스크 파일 I/O 대기 시간 초과")
+
+    with open(I2I_MASK, "r", encoding="utf-8") as f:
+        workflow = json.load(f)
+
+    if seed < 0:
+        seed = random.randint(1, 999999999999999)
+
+    workflow["1"]["inputs"]["image"]    = filename
+    workflow["3"]["inputs"]["ckpt_name"] = checkpoint
+    workflow["18"]["inputs"]["text"]    = prompt
+    workflow["19"]["inputs"]["text"]    = negative
+    workflow["22"]["inputs"]["image"]   = mask_filename
+    workflow["8"]["inputs"]["seed"]     = seed
+    workflow["8"]["inputs"]["denoise"]  = denoise
+
+    origin_stem = os.path.splitext(filename)[0].strip()
+    output_prefix = f"{origin_stem}_i2i_mask"
+    workflow["10"]["inputs"]["filename_prefix"] = output_prefix
+
+    before    = time.time()
+    prompt_id = _post_workflow(workflow, client_id)
+    yield {"type": "progress", "value": 0.05, "text": "i2i 마스크 큐 등록됨..."}
+
+    ws = websocket.WebSocket()
+    ws.connect(f"{COMFY_WS}?clientId={client_id}")
+    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95)
+
+    files = glob.glob(os.path.join(COMFY_OUTPUT, f"{output_prefix}*.png"))
+    new_files = [f for f in files if os.path.getctime(f) > before]
+    if not new_files:
+        raise RuntimeError(f"i2i 마스크 이미지를 찾을 수 없음 (패턴: {output_prefix}*.png)")
 
     yield {"type": "done", "image_path": max(new_files, key=os.path.getctime)}

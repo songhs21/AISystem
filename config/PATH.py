@@ -33,6 +33,7 @@ CONFIG_PATH     = PROJECT_ROOT/"config"/"config.json"
 UPSCALE_WORKFLOW_DIR     = ASSETS_DIR/"workflow"/"upscale_workflow.json"
 INPAINTING_DIR  =  ASSETS_DIR/"workflow"/"inpaint_workflow.json"
 DETAIL_INPAINTING_DIR =  ASSETS_DIR/"workflow"/"inpaint_detail_workflow.json"
+I2I_MASK = ASSETS_DIR/"workflow"/"i2i_mask_workflow.json"
 # TAG
 TAG_META_PATH = ASSETS_DIR/"tag"/"tag_meta.json"
 # HAIR
