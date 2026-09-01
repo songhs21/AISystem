@@ -236,3 +236,34 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 ```
 #### 변경 파일: GeneratePage.jsx (import Fuse, buildFuse(), allTagsFlat, globalResults, 검색창 + 후보 목록 블록 전체 교체), package.json (fuse.js 의존성 추가)
 ```
+
+## v1.2.0 I2I 모드 추가
+1. 텍스트 모드 → i2i 모드 통합
+- 변경: 모드명 ✏️ 텍스트 → 🖼️ i2i, 텍스트 모드 UI 제거
+- 문제/배경: 텍스트 모드가 드롭박스 모드와 기능 중복, i2i 슬롯만 추가하면 통합 - 가능
+- 결정: 텍스트 모드 제거하고 i2i 모드로 대체. 프롬프트 수기 입력 유지
+- 이유: 드롭박스 모드에서 태그 선택 + 프롬프트 직접 입력 모두 가능하므로 텍스트 모드 별도 유지 불필요
+- 대안: 텍스트 모드 유지하고 i2i를 별도 탭으로 분리 → 기각 (UI 복잡도 증가)
+```변경 파일: GeneratePage.jsx```
+
+2. i2i 이미지 슬롯 UI
+- 변경: 베이스/마스크/레퍼런스 슬롯 추가 (썸네일 카드, 클릭 시 오버레이)
+- 문제/배경: 이미지 원본을 그대로 띄우면 스크롤 문제 발생
+- 결정: 48px 썸네일로 표시, 클릭 시 fullscreen 오버레이. 히스토리 이미지 피커로 인페인팅/i2i 양쪽에서 접근 가능
+- 이유: 공간 효율 + 원본 확인 가능
+```변경 파일: GeneratePage.jsx```
+
+3. i2i 해상도 제어
+- 변경: 1600px 초과 이미지 업로드 차단
+- 문제/배경: VRAM 초과 위험 방지. 업스케일 이미지 선택 시 원본보다 클 수 있음
+- 결정: 1600px 초과 시 alert 후 차단. 히스토리에서 업스케일 이미지 선택 시 원본 image_path 자동 선택 (파일명 패턴 판별)
+- 이유: 업스케일 이미지는 1600px 초과 가능성 높음
+- 대안: 자동 리사이즈 → 장기 계획으로 이연
+```변경 파일: GeneratePage.jsx```
+
+4. i2i 백엔드
+- 변경: run_i2i 함수 추가, /api/sd/i2i 엔드포인트 추가, i2iUrl client 등록
+- 문제/배경: 단순 i2i 워크플로우(i2i_base_workflow.json) 기반 생성 필요
+- 결정: 기존 run_inpaint 구조와 동일하게 SSE 스트림으로 구현. 노드 매핑: 1=LoadImage, 6=positive, 7=negative, 9=checkpoint, 11=KSampler(denoise), 14=SaveImage
+- 이유: 인페인팅과 동일한 SSE 패턴으로 프론트 재사용 가능
+```변경 파일: core/image/generate.py, api/routers/sd.py, src/api/client.js```

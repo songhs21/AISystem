@@ -264,7 +264,6 @@ export default function GeneratePage() {
   const [usedPrompt, setUsedPrompt] = useState('')
 
   // 드롭박스 모드 state
-  
   const [dropSelections, setDropSelections] = useState(() => {
     try {
       const saved = localStorage.getItem('dropSelections')
@@ -294,6 +293,16 @@ export default function GeneratePage() {
   const [globalSearch, setGlobalSearch] = useState('')
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [openSubs, setOpenSubs] = useState(new Set())
+    // i2i 모드 state
+  const [i2iBaseImage, setI2iBaseImage] = useState(null)   // { path, filename, src }
+  const [i2iMaskImage, setI2iMaskImage] = useState(null)
+  const [i2iRefImage, setI2iRefImage]   = useState(null)
+  const [i2iPrompt, setI2iPrompt]       = useState('')
+  const [i2iNegative, setI2iNegative]   = useState('')
+  const [i2iDenoise, setI2iDenoise]     = useState(0.7)
+  const [i2iSeed, setI2iSeed]           = useState(-1)
+  const [showHistoryPicker, setShowHistoryPicker] = useState(false) // 히스토리 이미지 피커
+  const [i2iOverlay, setI2iOverlay]     = useState(null)  // 오버레이로 볼 이미지 src
 
   // 프로그레스
   const { progress, statusText, running, error, run } = useSSE()
@@ -455,16 +464,86 @@ export default function GeneratePage() {
     return fuse.search(globalSearch).map(r => r.item).slice(0, 30)
   }, [globalSearch, allTagsFlat])
 
-  // ── 생성 ──
-  async function generate() {
-    setResult(null)
-    setTags([])
-    setLikedTags(new Set())
-    setDislikedTags(new Set())
-    setFalseTags(new Set())
+  // img 1600px 체크 함수
+  function checkImageSize(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => {
+        URL.revokeObjectURL(img.src)
+        if (img.naturalWidth > 1600 || img.naturalHeight > 1600) {
+          reject(new Error(`이미지 크기 초과: ${img.naturalWidth}×${img.naturalHeight} (최대 1600px)`))
+        } else {
+          resolve({ width: img.naturalWidth, height: img.naturalHeight })
+        }
+      }
+      img.src = URL.createObjectURL(file)
+    })
+  }
 
-    const parts = []
-    if (mode === 'dropdown') {
+  async function handleI2iUpload(e, setSlot) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      await checkImageSize(file)
+      const src = URL.createObjectURL(file)
+      setSlot({ file, filename: file.name, src, fromHistory: false })
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  function handleHistoryPick(gen) {
+    // 업스케일 이미지면 원본 선택
+    const isUpscaled = gen.upscaled_image &&
+      gen.image_path.replace(/[^/\\]*$/, '') + gen.upscaled_image === gen.image_path
+    const path = gen.image_path
+    const src = `${API_BASE}/api/system/image?path=${encodeURIComponent(path)}`
+    setI2iBaseImage({ file: null, filename: path.split(/[/\\]/).pop(), src, path, fromHistory: true })
+    setShowHistoryPicker(false)
+  }
+
+  // ── 생성 ──
+    async function generate() {
+      setResult(null)
+      setTags([])
+      setLikedTags(new Set())
+      setDislikedTags(new Set())
+      setFalseTags(new Set())
+
+      if (mode === 'i2i') {
+        if (!i2iBaseImage) { alert('베이스 이미지를 선택해주세요'); return }
+
+        // 히스토리 이미지면 path 직접 사용, 업로드면 서버로 전송 필요
+        let imagePath = i2iBaseImage.path || ''
+
+        if (!i2iBaseImage.fromHistory) {
+          // 파일 업로드 → /api/system/upload 로 전송 (추후 엔드포인트 추가 필요)
+          // 임시: COMFY_INPUT에 저장하는 엔드포인트 필요
+          alert('파일 업로드 엔드포인트 미구현 — 히스토리 이미지를 사용해주세요')
+          return
+        }
+
+        await run(
+          sdApi.i2iUrl(),
+          {
+            image_path: imagePath,
+            checkpoint,
+            prompt: i2iPrompt,
+            negative: i2iNegative || negative,
+            denoise: i2iDenoise,
+            seed: i2iSeed,
+          },
+          {
+            onDone: async (data) => {
+              setResult(data)
+            }
+          }
+        )
+        return
+      }
+
+      // 기존 드롭박스 모드 생성
+      const parts = []
       for (const cat of CATEGORY_ORDER) {
         for (const sub of (CATEGORY_CONFIG[cat] || [])) {
           const subKey = `${cat}.${sub.key}`
@@ -476,34 +555,25 @@ export default function GeneratePage() {
           }
         }
       }
-    } else {
-      if (textPrompt.trim()) parts.push(textPrompt.trim())
-      for (const cat of CATEGORY_ORDER) {
-        if (textRandom[cat]) {
-          const fixed = textRandomFixed[cat]
-          if (fixed) parts.push(fixed)
+
+      const prompt = parts.filter(Boolean).join(', ')
+      console.log('[Generate] mode:', mode, 'prompt:', prompt)
+
+      await run(
+        sdApi.generateUrl(),
+        { prompt, negative, checkpoint },
+        {
+          onDone: async (data) => {
+            setResult(data)
+            try {
+              const gen = await historyApi.generation(data.gen_id)
+              setUsedPrompt(gen.data.prompt || '')
+              setTags(gen.data.tags || [])
+            } catch(e) { console.error('태그 조회 실패:', e) }
+          }
         }
-      }
+      )
     }
-
-    const prompt = parts.filter(Boolean).join(', ')
-    console.log('[Generate] mode:', mode, 'prompt:', prompt)
-
-    await run(
-      sdApi.generateUrl(),
-      { prompt, negative, checkpoint },
-      {
-        onDone: async (data) => {
-          setResult(data)
-          try {
-            const gen = await historyApi.generation(data.gen_id)
-            setUsedPrompt(gen.data.prompt || '')
-            setTags(gen.data.tags || [])
-          } catch(e) { console.error('태그 조회 실패:', e) }
-        }
-      }
-    )
-  }
 
   // ── 피드백 저장 ──
   async function saveFeedback() {
@@ -558,6 +628,8 @@ export default function GeneratePage() {
       </div>
     )
   }
+
+  
   // ── JSX ──
   return (
     <div style={{ display: 'flex', width: '100%', height: '100%', flex: 1, overflow: 'hidden' }}>
@@ -607,11 +679,11 @@ export default function GeneratePage() {
 
           {/* 모드 전환 */}
           <div style={{ display: 'flex', gap: 4 }}>
-            {['dropdown', 'text'].map(m => (
+            {['dropdown', 'i2i'].map(m => (
               <button key={m} className="btn btn-ghost"
                 style={{ fontSize: 11, padding: '4px 10px', ...(mode === m ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
                 onClick={() => setMode(m)}>
-                {m === 'dropdown' ? '🔽 드롭박스' : '✏️ 텍스트'}
+                {m === 'dropdown' ? '🔽 드롭박스' : '🖼️ i2i'}
               </button>
             ))}
           </div>
@@ -974,37 +1046,64 @@ export default function GeneratePage() {
             )
           })}
 
-          {/* 텍스트 모드 */}
-          {mode === 'text' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* i2i 모드 */}
+          {mode === 'i2i' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+              {/* 프롬프트 */}
               <div>
-                <label>직접 입력</label>
-                <textarea value={textPrompt} onChange={e => setTextPrompt(e.target.value)}
-                  style={{ height: 80, resize: 'vertical' }} />
+                <label>✅ 긍정 프롬프트</label>
+                <textarea value={i2iPrompt} onChange={e => setI2iPrompt(e.target.value)}
+                  placeholder="비워두면 공백으로 전달"
+                  style={{ height: 70, resize: 'vertical' }} />
               </div>
-              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8 }}>카테고리 랜덤 추가</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {CATEGORY_ORDER.map(cat => (
-                    <label key={cat} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer', margin: 0 }}>
-                      <input type="checkbox" checked={textRandom[cat] || false}
-                        onChange={e => {
-                          const checked = e.target.checked
-                          setTextRandom(prev => ({ ...prev, [cat]: checked }))
-                          if (checked) {
-                            const l = tagData[cat] || []
-                            if (l.length) {
-                              const picked = l[Math.floor(Math.random() * l.length)].en
-                              setTextRandomFixed(prev => ({ ...prev, [cat]: picked }))
-                            }
-                          } else {
-                            setTextRandomFixed(prev => { const n = {...prev}; delete n[cat]; return n })
-                          }
-                        }} />
-                      {cat}
-                    </label>
-                  ))}
-                </div>
+              <div>
+                <label>❌ 부정 프롬프트</label>
+                <textarea value={i2iNegative} onChange={e => setI2iNegative(e.target.value)}
+                  placeholder="비워두면 기본 네거티브 사용"
+                  style={{ height: 50, resize: 'vertical' }} />
+              </div>
+
+              {/* Denoise */}
+              <div>
+                <label>Denoise: {i2iDenoise} (낮을수록 원본 유지)</label>
+                <input type="range" min={0.1} max={1.0} step={0.05} value={i2iDenoise}
+                  onChange={e => setI2iDenoise(+e.target.value)}
+                  style={{ padding: 0, border: 'none', background: 'none' }} />
+              </div>
+
+              {/* 이미지 슬롯 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label>이미지 슬롯</label>
+
+                {/* 베이스 */}
+                <I2iSlot
+                  label="베이스"
+                  required
+                  value={i2iBaseImage}
+                  onUpload={e => handleI2iUpload(e, setI2iBaseImage)}
+                  onHistoryPick={() => setShowHistoryPicker(true)}
+                  onRemove={() => setI2iBaseImage(null)}
+                  onPreview={src => setI2iOverlay(src)}
+                />
+
+                {/* 마스크 */}
+                <I2iSlot
+                  label="마스크"
+                  value={i2iMaskImage}
+                  onUpload={e => handleI2iUpload(e, setI2iMaskImage)}
+                  onRemove={() => setI2iMaskImage(null)}
+                  onPreview={src => setI2iOverlay(src)}
+                />
+
+                {/* 레퍼런스 */}
+                <I2iSlot
+                  label="레퍼런스"
+                  value={i2iRefImage}
+                  onUpload={e => handleI2iUpload(e, setI2iRefImage)}
+                  onRemove={() => setI2iRefImage(null)}
+                  onPreview={src => setI2iOverlay(src)}
+                />
               </div>
             </div>
           )}
@@ -1073,6 +1172,123 @@ export default function GeneratePage() {
           )}
         </div>
       )}
+      {/* 이미지 오버레이 */}
+      {i2iOverlay && (
+        <div
+          onClick={() => setI2iOverlay(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 400,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <img src={i2iOverlay} style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8 }} />
+        </div>
+      )}
+
+      {/* 히스토리 이미지 피커 */}
+      {showHistoryPicker && (
+        <HistoryImagePicker
+          onPick={handleHistoryPick}
+          onClose={() => setShowHistoryPicker(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── i2i 슬롯 컴포넌트 ─────────────────────────────────────
+function I2iSlot({ label, required, value, onUpload, onHistoryPick, onRemove, onPreview }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '6px 8px', borderRadius: 6,
+      background: 'var(--bg3)', border: '1px solid var(--border)',
+    }}>
+      <span style={{ fontSize: 11, color: 'var(--text-dim)', minWidth: 52 }}>
+        {label}{required && <span style={{ color: 'var(--danger)' }}> *</span>}
+      </span>
+
+      {value ? (
+        <>
+          <img
+            src={value.src}
+            onClick={() => onPreview(value.src)}
+            style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', border: '1px solid var(--border)' }}
+          />
+          <span style={{ fontSize: 11, color: 'var(--text-dim)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {value.filename}
+          </span>
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 6px' }} onClick={onRemove}>×</button>
+        </>
+      ) : (
+        <>
+          <label style={{ margin: 0 }}>
+            <input type="file" accept="image/*" onChange={onUpload} style={{ display: 'none' }} />
+            <span className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>📁 업로드</span>
+          </label>
+          {onHistoryPick && (
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onHistoryPick}>
+              📋 히스토리
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+
+// ── 히스토리 이미지 피커 ──────────────────────────────────
+function HistoryImagePicker({ onPick, onClose }) {
+  const { data: gensData } = useQuery({
+    queryKey: ['generations'],
+    queryFn: () => historyApi.generations().then(r => r.data),
+  })
+  const generations = gensData?.generations || []
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 300,
+        background: 'rgba(0,0,0,0.7)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg2)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: 16, width: 600, maxHeight: '80vh',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontWeight: 600 }}>히스토리에서 이미지 선택</span>
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onClose}>✕</button>
+        </div>
+        <div style={{ overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {generations.map(gen => {
+            const path = gen.image_path
+            const src = `${API_BASE}/api/system/image?path=${encodeURIComponent(path)}`
+            return (
+              <img
+                key={gen.id}
+                src={src}
+                onClick={() => onPick(gen)}
+                style={{
+                  width: 100, height: 100, objectFit: 'cover',
+                  borderRadius: 6, cursor: 'pointer',
+                  border: '2px solid transparent',
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'transparent'}
+              />
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }

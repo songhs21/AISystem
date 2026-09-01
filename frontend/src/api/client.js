@@ -18,6 +18,7 @@ export const sdApi = {
   // SSE 기반 — EventSource URL 반환
   generateUrl: () => `${API_BASE}/api/sd/generate`,
   upscaleUrl: () => `${API_BASE}/api/sd/upscale`,
+  i2iUrl: () => `${API_BASE}/api/sd/i2i`,
 }
 
 // ── 히스토리 ──────────────────────────────────────────────
@@ -35,6 +36,7 @@ export const historyApi = {
   comfyStart: () => client.post('/api/system/comfy/start'),
   comfyKill: () => client.post('/api/system/comfy/kill'),
   allTagWeights: () => client.get('/api/history/all-tag-weights'),
+  i2iUrl: () => `${API_BASE}/api/sd/i2i`,
 }
 
 // ── 인페인팅 ──────────────────────────────────────────────

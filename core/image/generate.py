@@ -11,7 +11,7 @@ import random
 from config.PATH import (
     COMFY_URL, COMFY_WS, COMFY_DIR, COMFY_INPUT, COMFY_OUTPUT,
     UPSCALE_WORKFLOW_DIR, INPAINTING_DIR, DETAIL_INPAINTING_DIR,
-    PYTHON_EMBEDED
+    PYTHON_EMBEDED, I2IBASE
 )
 from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comfy
 from core.db import get_conn
@@ -255,5 +255,54 @@ def run_inpaint(image_path: str, mask_path: str, checkpoint: str,
     new_files = [f for f in files if os.path.getctime(f) > before]
     if not new_files:
         raise RuntimeError(f"인페인팅 이미지를 찾을 수 없음 (패턴: {output_prefix}*.png)")
+
+    yield {"type": "done", "image_path": max(new_files, key=os.path.getctime)}
+
+# ── i2i ──────────────────────────────────────────────────
+
+def run_i2i(image_path: str, checkpoint: str,
+            prompt: str, negative: str = "",
+            denoise: float = 0.7, seed: int = -1,
+            client_id: str = None):
+    if not is_comfy_alive():
+        yield {"type": "progress", "value": 0.0, "text": "ComfyUI 시작 중..."}
+        start_comfy()
+        wait_for_comfy()
+
+    if client_id is None:
+        client_id = str(uuid.uuid4())
+
+    filename = os.path.basename(image_path)
+    shutil.copy2(image_path, os.path.join(COMFY_INPUT, filename))
+
+    with open(I2IBASE, "r", encoding="utf-8") as f:
+        workflow = json.load(f)
+
+    if seed < 0:
+        seed = random.randint(1, 999999999999999)
+
+    workflow["1"]["inputs"]["image"]    = filename
+    workflow["6"]["inputs"]["text"]     = prompt
+    workflow["7"]["inputs"]["text"]     = negative
+    workflow["9"]["inputs"]["ckpt_name"] = checkpoint
+    workflow["11"]["inputs"]["seed"]    = seed
+    workflow["11"]["inputs"]["denoise"] = denoise
+
+    origin_stem = os.path.splitext(filename)[0].strip()
+    output_prefix = f"{origin_stem}_i2i"
+    workflow["14"]["inputs"]["filename_prefix"] = output_prefix
+
+    before    = time.time()
+    prompt_id = _post_workflow(workflow, client_id)
+    yield {"type": "progress", "value": 0.05, "text": "i2i 큐 등록됨..."}
+
+    ws = websocket.WebSocket()
+    ws.connect(f"{COMFY_WS}?clientId={client_id}")
+    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95)
+
+    files = glob.glob(os.path.join(COMFY_OUTPUT, f"{output_prefix}*.png"))
+    new_files = [f for f in files if os.path.getctime(f) > before]
+    if not new_files:
+        raise RuntimeError(f"i2i 이미지를 찾을 수 없음 (패턴: {output_prefix}*.png)")
 
     yield {"type": "done", "image_path": max(new_files, key=os.path.getctime)}

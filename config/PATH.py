@@ -26,8 +26,9 @@ GRADIO_START_LOG    = PROJECT_ROOT/"data"/"logs"/"gradio_start.txt"
 GRADIO_LOG          = PROJECT_ROOT/"data"/"logs"/"gradio_log.txt"
 WORKER_LOG          = PROJECT_ROOT/"data"/"logs"/"worker.log"
 INPAINT_REQUEST     = PROJECT_ROOT/"data"/"inpaint_request.json"
-# json
+# workflow
 WORKFLOW_PATH   = ASSETS_DIR/"workflow"/"custom_workflow_api.json"
+I2IBASE         = ASSETS_DIR/"workflow"/"i2i_bass_workflow.json"
 CONFIG_PATH     = PROJECT_ROOT/"config"/"config.json"
 UPSCALE_WORKFLOW_DIR     = ASSETS_DIR/"workflow"/"upscale_workflow.json"
 INPAINTING_DIR  =  ASSETS_DIR/"workflow"/"inpaint_workflow.json"

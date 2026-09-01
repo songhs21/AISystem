@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from config.PATH import CHECKPOINT_DIR, WORKFLOW_PATH
 from config.constants import NEGATIVE_BASE, MODEL_RESOLUTION
-from core.image.generate import run_comfy, run_upscale, load_upscale_workflow, is_comfy_alive
+from core.image.generate import run_comfy, run_upscale, load_upscale_workflow, is_comfy_alive, run_i2i
 from core.image.preference import save_generation_start, get_generation_by_prompt_id, update_upscaled_image
 from core.system.watcher import watch_comfy
 from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comfy
@@ -74,6 +74,13 @@ class UpscaleRequest(BaseModel):
     prompt: str = ""
     negative: str = ""
 
+class I2IRequest(BaseModel):
+    image_path: str
+    checkpoint: str
+    prompt: str = ""
+    negative: str = ""
+    denoise: float = 0.7
+    seed: int = -1
 
 # ── 엔드포인트 ────────────────────────────────────────────
 
@@ -207,6 +214,31 @@ def upscale(req: UpscaleRequest):
                 elif event["type"] == "done":
                     filename = os.path.basename(event["image_path"])
                     update_upscaled_image(req.gen_id, filename)
+                    yield f"event: done\ndata: {json.dumps({'image_path': event['image_path'], 'filename': filename})}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/i2i")
+def i2i(req: I2IRequest):
+    """
+    i2i — SSE 스트림
+    event: progress → {"value": float, "text": str}
+    event: done     → {"image_path": str, "filename": str}
+    event: error    → {"message": str}
+    """
+    def stream():
+        try:
+            for event in run_i2i(
+                req.image_path, req.checkpoint,
+                req.prompt, req.negative,
+                req.denoise, req.seed
+            ):
+                if event["type"] == "progress":
+                    yield f"event: progress\ndata: {json.dumps({'value': event['value'], 'text': event['text']})}\n\n"
+                elif event["type"] == "done":
+                    filename = os.path.basename(event["image_path"])
                     yield f"event: done\ndata: {json.dumps({'image_path': event['image_path'], 'filename': filename})}\n\n"
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"

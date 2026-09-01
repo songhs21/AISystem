@@ -2,12 +2,13 @@
 import requests
 from fastapi import APIRouter
 from pydantic import BaseModel
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
+import mimetypes
 from fastapi import HTTPException
 import os
 from core.system.comfy_manager import is_comfy_alive, start_comfy, kill_comfy, get_vram_info
 from config.constants import NEGATIVE_BASE
-from pathlib import Path
+from pathlib import Path 
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -100,12 +101,23 @@ def system_status():
 
 @router.get("/image")
 def serve_image(path: str):
-    # 백슬래시 정규화
     normalized = os.path.normpath(path)
     if not os.path.exists(normalized):
         raise HTTPException(status_code=404, detail=f"파일 없음: {normalized}")
-    return FileResponse(normalized)
-
+    
+    mime, _ = mimetypes.guess_type(normalized)
+    with open(normalized, "rb") as f:
+        data = f.read()
+    
+    return Response(
+        content=data,
+        media_type=mime or "image/png",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "Vary": "Origin",
+        }
+    )
 
 @router.post("/comfy/start")
 def comfy_start():
