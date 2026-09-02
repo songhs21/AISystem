@@ -19,6 +19,7 @@ export const sdApi = {
   generateUrl: () => `${API_BASE}/api/sd/generate`,
   upscaleUrl: () => `${API_BASE}/api/sd/upscale`,
   i2iUrl: () => `${API_BASE}/api/sd/i2i`,
+  i2iMaskUrl: () => `${API_BASE}/api/sd/i2i-mask`,
 }
 
 // ── 히스토리 ──────────────────────────────────────────────
@@ -37,7 +38,6 @@ export const historyApi = {
   comfyKill: () => client.post('/api/system/comfy/kill'),
   allTagWeights: () => client.get('/api/history/all-tag-weights'),
   i2iUrl: () => `${API_BASE}/api/sd/i2i`,
-  i2iMaskUrl: () => `${API_BASE}/api/sd/i2i-mask`,
 }
 
 // ── 인페인팅 ──────────────────────────────────────────────
@@ -52,4 +52,9 @@ export const systemApi = {
   status: () => client.get('/api/system/status'),
   switch: (mode, llm_model = 'qwen3:14b') =>
     client.post('/api/system/switch', { mode, llm_model }),
+  uploadImage: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return client.post('/api/system/upload', form)
+  },
 }

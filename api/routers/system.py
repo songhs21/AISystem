@@ -9,6 +9,7 @@ import os
 from core.system.comfy_manager import is_comfy_alive, start_comfy, kill_comfy, get_vram_info
 from config.constants import NEGATIVE_BASE
 from pathlib import Path 
+from fastapi import UploadFile, File
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -182,3 +183,19 @@ def list_tag_files():
     tag_dir = Path("D:/Python/AISystem/assets/tag/json")
     files = [p.name for p in tag_dir.glob("*.json")]
     return {"files": sorted(files)}
+
+@router.post("/upload")
+async def upload_image(file: UploadFile = File(...)):
+    """이미지를 COMFY_INPUT에 저장하고 경로 반환"""
+    from config.PATH import COMFY_INPUT
+    import shutil
+
+    # 확장자 체크
+    if not file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+        raise HTTPException(status_code=400, detail="이미지 파일만 업로드 가능합니다")
+
+    save_path = os.path.join(COMFY_INPUT, file.filename)
+    with open(save_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    return {"path": save_path, "filename": file.filename}

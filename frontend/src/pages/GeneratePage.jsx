@@ -1,8 +1,13 @@
 // src/pages/GeneratePage.jsx
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { client, sdApi, historyApi } from '../api/client'
-import { API_BASE } from '../api/client'
+import { 
+  client,
+  sdApi,
+  historyApi,
+  API_BASE,
+  systemApi
+} from '../api/client'
 import { useSSE } from '../hooks/useSSE'
 import TagPanel from '../components/TagPanel'
 import ImageViewer from '../components/ImageViewer'
@@ -21,9 +26,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useCallback
-  
- } from 'react'
+import { useCallback } from 'react'
 // ─── 카테고리 순서 ───────────────────────────────────────────────
 const CATEGORY_ORDER = [
   'people', 'composition', 'character', 'hairstyle', 'body', 'Attire',
@@ -491,8 +494,11 @@ export default function GeneratePage() {
     if (!file) return
     try {
       await checkImageSize(file)
+      // 서버 업로드
+      const res = await systemApi.uploadImage(file)
+      const { path } = res.data
       const src = URL.createObjectURL(file)
-      setSlot({ file, filename: file.name, src, fromHistory: false })
+      setSlot({ file, filename: file.name, src, path, fromHistory: true })
     } catch (err) {
       alert(err.message)
     }
@@ -519,18 +525,14 @@ export default function GeneratePage() {
     if (mode === 'i2i') {
       if (!i2iBaseImage) { alert('베이스 이미지를 선택해주세요'); return }
 
-      // 히스토리 이미지면 path 직접 사용, 업로드면 서버로 전송 필요
       let imagePath = i2iBaseImage.path || ''
 
       if (!i2iBaseImage.fromHistory) {
-        // 파일 업로드 → /api/system/upload 로 전송 (추후 엔드포인트 추가 필요)
-        // 임시: COMFY_INPUT에 저장하는 엔드포인트 필요
         alert('파일 업로드 엔드포인트 미구현 — 히스토리 이미지를 사용해주세요')
         return
       }
 
       if (i2iMaskBlob) {
-        // 마스크 있으면 i2i-mask 엔드포인트
         const form = new FormData()
         form.append('image_path', imagePath)
         form.append('checkpoint', checkpoint)
@@ -546,7 +548,6 @@ export default function GeneratePage() {
           { onDone: async (data) => { setResult(data) } }
         )
       } else {
-        // 마스크 없으면 기존 i2i
         await run(
           sdApi.i2iUrl(),
           {
@@ -560,6 +561,7 @@ export default function GeneratePage() {
           { onDone: async (data) => { setResult(data) } }
         )
       }
+      return  // ← i2i 블록 끝에서 return
     }
 
   // 기존 드롭박스 모드 생성

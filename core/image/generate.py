@@ -199,6 +199,8 @@ def run_inpaint(image_path: str, mask_path: str, checkpoint: str,
     filename    = os.path.basename(image_path)
     origin_stem = os.path.splitext(filename)[0].strip()
 
+    from PIL import Image as PILImage, ImageFilter
+    
     # 마스크 복사
     assert os.path.exists(mask_path), f"마스크 파일 없음: {repr(mask_path)}"
     mask_filename   = os.path.basename(mask_path)
@@ -207,6 +209,12 @@ def run_inpaint(image_path: str, mask_path: str, checkpoint: str,
         shutil.copy2(mask_path, mask_input_path)
     if not wait_for_file_ready(mask_input_path):
         raise TimeoutError("마스크 파일 I/O 대기 시간 초과")
+
+
+    # 마스크 페더링 (경계 자연스럽게)
+    mask_img = PILImage.open(mask_input_path).convert("L")
+    mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=12))
+    mask_img.save(mask_input_path)
 
     # 워크플로우 로드 및 노드 주입
     workflow = load_inpaint_workflow(mode)
@@ -273,7 +281,9 @@ def run_i2i(image_path: str, checkpoint: str,
         client_id = str(uuid.uuid4())
 
     filename = os.path.basename(image_path)
-    shutil.copy2(image_path, os.path.join(COMFY_INPUT, filename))
+    dest = os.path.join(str(COMFY_INPUT), filename)
+    if os.path.abspath(image_path) != os.path.abspath(dest):
+        shutil.copy2(image_path, dest)
 
     with open(I2IBASE, "r", encoding="utf-8") as f:
         workflow = json.load(f)
@@ -322,7 +332,11 @@ def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
         client_id = str(uuid.uuid4())
 
     filename = os.path.basename(image_path)
-    shutil.copy2(image_path, os.path.join(COMFY_INPUT, filename))
+    dest = os.path.join(str(COMFY_INPUT), filename)
+    if os.path.normpath(image_path) != os.path.normpath(dest):
+        shutil.copy2(image_path, dest)
+
+    from PIL import Image as PILImage, ImageFilter
 
     mask_filename = os.path.basename(mask_path)
     mask_input_path = os.path.join(COMFY_INPUT, mask_filename)
@@ -330,6 +344,11 @@ def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
         shutil.copy2(mask_path, mask_input_path)
     if not wait_for_file_ready(mask_input_path):
         raise TimeoutError("마스크 파일 I/O 대기 시간 초과")
+
+    # 마스크 페더링 (경계 자연스럽게)
+    mask_img = PILImage.open(mask_input_path).convert("L")
+    mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=12))
+    mask_img.save(mask_input_path)
 
     with open(I2I_MASK, "r", encoding="utf-8") as f:
         workflow = json.load(f)
