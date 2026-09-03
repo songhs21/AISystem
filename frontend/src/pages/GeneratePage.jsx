@@ -269,6 +269,8 @@ export default function GeneratePage() {
   const [usedPrompt, setUsedPrompt] = useState('')
 
   // 드롭박스 모드 state
+  const [manualTags, setManualTags] = useState([])
+  
   const [dropSelections, setDropSelections] = useState(() => {
     try {
       const saved = localStorage.getItem('dropSelections')
@@ -290,15 +292,15 @@ export default function GeneratePage() {
   const [dropSearch, setDropSearch] = useState({})           // { 'cat.subKey': string }
   const [promptOrder, setPromptOrder] = useState([])
   const [isDraggingTag, setIsDraggingTag] = useState(false)
+  const [globalNavIndex, setGlobalNavIndex] = useState(-1)
 
-  // 텍스트 모드 state
+  // i2i 모드 state
   const [textPrompt, setTextPrompt] = useState('')
   const [textRandom, setTextRandom] = useState({})           // { cat: bool }
   const [textRandomFixed, setTextRandomFixed] = useState({}) // { cat: en }
   const [globalSearch, setGlobalSearch] = useState('')
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [openSubs, setOpenSubs] = useState(new Set())
-  // i2i 모드 state
   const [i2iBaseImage, setI2iBaseImage] = useState(null)   // { path, filename, src }
   const [i2iMaskImage, setI2iMaskImage] = useState(null)
   const [i2iRefImage, setI2iRefImage]   = useState(null)
@@ -428,8 +430,10 @@ export default function GeneratePage() {
 
   // ── 미리보기 ──
   const dropPrompt = useMemo(() => {
-    return promptOrder.map(t => t.en).join(', ')
-  }, [promptOrder])
+    const dropPart = promptOrder.map(t => t.en).join(', ')
+    const manualPart = manualTags.join(', ')
+    return [dropPart, manualPart].filter(Boolean).join(', ')
+  }, [promptOrder, manualTags])
 
   const textFinalPrompt = useMemo(() => {
     const parts = []
@@ -639,7 +643,7 @@ export default function GeneratePage() {
         }}
         {...attributes}
         {...listeners}
-        onClick={onClick}  // ← 클릭 시 제거
+        onClick={onClick}
       >
         {label}
         <button
@@ -715,9 +719,42 @@ export default function GeneratePage() {
             <input
               placeholder="🔍 전체 태그 검색..."
               value={globalSearch}
-              onChange={e => { setGlobalSearch(e.target.value); setGlobalSearchOpen(true) }}
+              onChange={e => { setGlobalSearch(e.target.value.replace(/ /g, '_')); setGlobalSearchOpen(true); setGlobalNavIndex(-1) }}
               onFocus={() => setGlobalSearchOpen(true)}
-              onBlur={() => setTimeout(() => setGlobalSearchOpen(false), 150)}
+              onBlur={() => setTimeout(() => { setGlobalSearchOpen(false); setGlobalNavIndex(-1) }, 150)}
+              onKeyDown={e => {
+                if (!globalSearchOpen || globalResults.length === 0) return
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setGlobalNavIndex(prev => Math.min(prev + 1, globalResults.length - 1))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setGlobalNavIndex(prev => Math.max(prev - 1, 0))
+                } else if (e.key === 'Enter') {
+                    e.preventDefault()
+                    if (globalNavIndex >= 0) {
+                      // 방향키로 선택된 항목 추가
+                      const t = globalResults[globalNavIndex]
+                      if (!t) return
+                      const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
+                      const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
+                      setDropSelections(prev => {
+                        const cur = prev[t.subKey] || []
+                        if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
+                        if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
+                        return { ...prev, [t.subKey]: [...cur, t.en] }
+                      })
+                      setGlobalSearch('')
+                      setGlobalSearchOpen(false)
+                      setGlobalNavIndex(-1)
+                    } else if (globalSearch.trim()) {
+                      // 직접 입력 태그로 추가
+                      setManualTags(prev => [...prev, globalSearch.trim()])
+                      setGlobalSearch('')
+                      setGlobalSearchOpen(false)
+                    }
+                  }
+              }}
               style={{ fontSize: 12 }}
             />
             {globalSearchOpen && globalResults.length > 0 && (
@@ -730,6 +767,7 @@ export default function GeneratePage() {
               }}>
                 {globalResults.map((t, i) => {
                   const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
+                  const isNavActive = i === globalNavIndex
                   return (
                     <div key={`${t.subKey}-${t.en}-${i}`}
                       onMouseDown={() => {
@@ -742,23 +780,24 @@ export default function GeneratePage() {
                         })
                         setGlobalSearch('')
                         setGlobalSearchOpen(false)
+                        setGlobalNavIndex(-1)
                       }}
+                      onMouseEnter={() => setGlobalNavIndex(i)}
+                      onMouseLeave={() => setGlobalNavIndex(-1)}
                       style={{
                         padding: '6px 10px', cursor: 'pointer', fontSize: 11,
                         display: 'flex', alignItems: 'center', gap: 8,
-                        background: isSelected ? 'var(--bg3)' : 'transparent',
+                        background: isNavActive ? 'var(--accent)' : isSelected ? 'var(--bg3)' : 'transparent',
                         borderBottom: '1px solid var(--border)',
                       }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg3)'}
-                      onMouseLeave={e => e.currentTarget.style.background = isSelected ? 'var(--bg3)' : 'transparent'}
                     >
-                      <span style={{ color: 'var(--accent)', fontSize: 10, minWidth: 80 }}>
+                      <span style={{ color: isNavActive ? '#fff' : 'var(--accent)', fontSize: 10, minWidth: 80 }}>
                         {t.cat} / {t.subLabel}
                       </span>
-                      <span style={{ color: isSelected ? 'var(--accent)' : 'var(--text)' }}>
+                      <span style={{ color: isNavActive ? '#fff' : isSelected ? 'var(--accent)' : 'var(--text)' }}>
                         {t.ko ? `${t.ko} (${t.en})` : t.en}
                       </span>
-                      {isSelected && <span style={{ marginLeft: 'auto', color: 'var(--accent)', fontSize: 10 }}>✓</span>}
+                      {isSelected && <span style={{ marginLeft: 'auto', color: isNavActive ? '#fff' : 'var(--accent)', fontSize: 10 }}>✓</span>}
                     </div>
                   )
                 })}
@@ -888,6 +927,24 @@ export default function GeneratePage() {
               </DndContext>
             )}
           </div>
+          {/* 직접 입력 태그 */}
+              {manualTags.map((tag, i) => (
+                <div key={`manual-${i}`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 3,
+                    background: 'var(--bg3)', border: '1px solid var(--success)',
+                    borderRadius: 4, padding: '2px 6px', fontSize: 11,
+                    color: 'var(--success)',
+                  }}
+                >
+                  {tag}
+                  <button
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={() => setManualTags(prev => prev.filter((_, idx) => idx !== i))}
+                    style={{ background: 'none', border: 'none', color: 'var(--success)', cursor: 'pointer', padding: 0, fontSize: 11 }}
+                  >×</button>
+                </div>
+              ))}
         </div>
 
         {/* 스크롤 영역 */}

@@ -44,20 +44,24 @@ def wait_for_file_ready(filepath: str, timeout: int = 3) -> bool:
 
 # ── WebSocket 이벤트 공통 수신 ────────────────────────────
 
-def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95):
+def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95, prompt_id: str = None):
     """
     WebSocket에서 progress 이벤트를 수신하며 yield.
-    yield {"type": "progress", "value": float, "text": str}
-    완료(executing node=None) 시 루프 종료.
+    prompt_id가 주어지면 해당 프롬프트 이벤트만 처리.
     """
     try:
         while True:
             raw = ws.recv()
             if isinstance(raw, bytes):
                 continue
-            msg  = json.loads(raw)
+            msg   = json.loads(raw)
             mtype = msg.get("type")
             data  = msg.get("data", {})
+
+            # prompt_id 필터링
+            if prompt_id and "prompt_id" in data:
+                if data["prompt_id"] != prompt_id:
+                    continue
 
             if mtype == "status":
                 remaining = data.get("status", {}).get("exec_info", {}).get("queue_remaining")
@@ -65,6 +69,8 @@ def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95):
                     yield {"type": "progress", "value": 0.05, "text": f"큐 대기 중... (앞 {remaining}개)"}
 
             elif mtype == "execution_start":
+                if prompt_id and data.get("prompt_id") != prompt_id:
+                    continue
                 yield {"type": "progress", "value": start_ratio, "text": "시작..."}
 
             elif mtype == "execution_cached":
@@ -76,9 +82,12 @@ def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95):
                 mapped = start_ratio + (value / max_v if max_v > 0 else 0) * (end_ratio - start_ratio)
                 yield {"type": "progress", "value": mapped, "text": f"스텝 {value}/{max_v}"}
 
-            elif mtype == "executing" and data.get("node") is None:
-                yield {"type": "progress", "value": 0.97, "text": "후처리 중..."}
-                break
+            elif mtype == "executing":
+                if prompt_id and data.get("prompt_id") != prompt_id:
+                    continue
+                if data.get("node") is None:
+                    yield {"type": "progress", "value": 0.97, "text": "후처리 중..."}
+                    break
     finally:
         ws.close()
 
@@ -122,7 +131,7 @@ def run_comfy(workflow: dict, client_id: str = None):
 
     ws = websocket.WebSocket()
     ws.connect(f"{COMFY_WS}?clientId={client_id}")
-    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95)
+    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95, prompt_id=prompt_id)
 
     files = glob.glob(os.path.join(COMFY_OUTPUT, "*.png"))
     new_files = [f for f in files if os.path.getctime(f) > before]
@@ -169,7 +178,7 @@ def run_upscale(image_path: str, select_upscaler: str, checkpoint: str,
 
     ws = websocket.WebSocket()
     ws.connect(f"{COMFY_WS}?clientId={client_id}")
-    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95)
+    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95, prompt_id=prompt_id)
 
     files = glob.glob(os.path.join(COMFY_OUTPUT, f"{origin_stem}*{model_stem}*.png"))
     new_files = [f for f in files if os.path.getctime(f) > before]
@@ -257,7 +266,7 @@ def run_inpaint(image_path: str, mask_path: str, checkpoint: str,
 
     ws = websocket.WebSocket()
     ws.connect(f"{COMFY_WS}?clientId={client_id}")
-    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95)
+    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95, prompt_id=prompt_id)
 
     files = glob.glob(os.path.join(COMFY_OUTPUT, f"{output_prefix}*.png"))
     new_files = [f for f in files if os.path.getctime(f) > before]
@@ -308,7 +317,7 @@ def run_i2i(image_path: str, checkpoint: str,
 
     ws = websocket.WebSocket()
     ws.connect(f"{COMFY_WS}?clientId={client_id}")
-    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95)
+    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95, prompt_id=prompt_id)
 
     files = glob.glob(os.path.join(COMFY_OUTPUT, f"{output_prefix}*.png"))
     new_files = [f for f in files if os.path.getctime(f) > before]
@@ -374,7 +383,7 @@ def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
 
     ws = websocket.WebSocket()
     ws.connect(f"{COMFY_WS}?clientId={client_id}")
-    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95)
+    yield from _ws_progress(ws, start_ratio=0.10, end_ratio=0.95, prompt_id=prompt_id)
 
     files = glob.glob(os.path.join(COMFY_OUTPUT, f"{output_prefix}*.png"))
     new_files = [f for f in files if os.path.getctime(f) > before]

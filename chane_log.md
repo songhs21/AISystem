@@ -285,3 +285,43 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 - 결정: 기존 인페인팅 replace 워크플로우(ControlNet inpainting 구조) 재활용. 노드 매핑: 1=LoadImage(베이스), 22=LoadImageMask, 18=positive, 19=negative, 3=checkpoint, 8=KSampler, 10=SaveImage
 - 이유: 워크플로우 구조가 동일하고 DB 저장만 제거하면 되므로 재활용이 효율적
 ```변경 파일: assets/workflow/i2i_mask_workflow.json, core/image/generate.py, api/routers/sd.py, config/PATH.py```
+
+---
+
+## v1.2.2 전체 태그 검색 입력 및 최적화
+
+### 11. 전체 태그 검색 방향키 네비게이션 + 엔터 입력
+- 변경: 전체 태그 검색 드롭다운에서 방향키 위/아래로 항목 이동, 엔터로 선택 항목 추가
+- 문제/배경: 검색 후 마우스 클릭만 가능해서 키보드로 빠르게 태그 추가 불가
+- 결정: `globalNavIndex` state 추가, 방향키로 인덱스 이동, 엔터로 선택 항목 dropSelections에 추가. 마우스 호버 시에도 navIndex 동기화. 검색어 변경 시 navIndex 초기화
+- 이유: 키보드 네비게이션으로 태그 선택 속도 향상
+- 변경 파일: src/pages/GeneratePage.jsx
+
+### 12. 전체 태그 검색 공백 → 언더바 자동 치환
+- 변경: 검색 input onChange에서 스페이스바 입력 시 언더바로 자동 치환
+- 문제/배경: SD 태그는 공백 대신 언더바를 사용하는데 검색 시 공백 입력하면 매칭 안 됨
+- 결정: `e.target.value.replace(/ /g, '_')` 적용
+- 이유: 태그 입력 규칙에 맞게 자동 변환
+- 변경 파일: src/pages/GeneratePage.jsx
+
+### 13. 직접 입력 태그(manualTags) 추가
+- 변경: 전체 검색창에서 방향키 선택 없이 엔터 입력 시 검색어를 manualTags로 추가, 최종 프롬프트에 반영
+- 문제/배경: 드롭박스 카테고리에 없는 태그를 프롬프트에 추가할 방법 없음
+- 결정: `manualTags` state 추가, dropPrompt useMemo에서 dropPart + manualPart 합산. 미리보기에 초록색 칩으로 별도 표시, 클릭으로 제거 가능
+- 이유: 카테고리 미등록 태그도 프롬프트에 자유롭게 추가 가능하게
+- 변경 파일: src/pages/GeneratePage.jsx
+
+### 14. WebSocket prompt_id 필터링
+- 변경: `_ws_progress`에 `prompt_id` 파라미터 추가, 다른 프롬프트 이벤트 무시
+- 문제/배경: 큐 대기/캐시 로드 중 다른 프롬프트의 `executing node=None` 이벤트를 받아 조기 종료되는 경우 발생
+- 결정: `data.prompt_id` 체크해서 현재 프롬프트 이벤트만 처리. 모든 run 함수에 prompt_id 전달
+- 이유: 멀티 큐 환경에서 WebSocket 이벤트 혼선 방지
+- 변경 파일: core/image/generate.py
+
+### 15. constants 모델별 설정 갱신 및 sd.py 반영
+- 변경: `MODEL_RESOLUTION`에 모델별 sampler_name, scheduler, hires_* 키 추가. sd.py에서 sampler/scheduler를 ComfyUI 형식으로 변환 후 워크플로우에 반영
+- 문제/배경: 추가된 모델들의 권장 KSampler 설정(sampler, scheduler)이 워크플로우에 반영되지 않고 기본값으로만 동작
+- 결정: constants.py에 모델별 sampler_name/scheduler 추가. sd.py에 SAMPLER_MAP/SCHEDULER_MAP 상수 추가해서 A1111 표기를 ComfyUI 표기로 변환 후 workflow["3"]에 주입
+- 이유: 모델별 권장 설정 준수로 생성 품질 최적화. A1111과 ComfyUI의 sampler/scheduler 명칭이 달라 매핑 테이블 필요
+- 대안: 없음
+- 변경 파일: config/constants.py, api/routers/sd.py

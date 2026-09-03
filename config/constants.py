@@ -35,25 +35,271 @@ CAT_KO = {
     "props_food": "음식 소품", "props_furniture": "가구 소품",
     "props_objects": "오브젝트", "기타": "기타",
 }
+
 # 모델별 오버라이딩 설정
 MODEL_RESOLUTION = {
     # 🌟 AnimagineXL V4: 전용 파라미터 프로필 내장
     "animagineXL40_v4": {
         "width": 1024, "height": 1024,
-        "steps": 28, "cfg": 5.5, 
-        "prefix": "masterpiece, high score" # score_9_up, source_game, source_anime, source_cartoon
+        "step": 40, "steps": 40,
+        "cfg": 5.0,
+        "sampler_name": "Euler a",
+        "scheduler": "Automatic",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.45,
+        "prefix": "masterpiece, high score"
     },
-    # 궤도 수정 없이 기존 세팅(해상도만 제어)을 유지할 모델들
-    "catTowerNoobai": {"width": 832, "height": 1216},
-    "novaAnimeXL_ilV190":{
+    
+    # 🌟 Illustrious / Noobai 계열 (SGM Uniform 최적화)
+    "catTowerNoobai": {
+        "width": 1024, "height": 1024,
+        "step": 40, "steps": 40,
+        "cfg": 5.0,
+        "sampler_name": "Euler a",
+        "scheduler": "SGM Uniform",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.4
+    },
+    "novaAnimeXL_ilV190": {
+        "width": 1536, "height": 1536,
+        "step": 30, "steps": 30,             
+        "cfg": 6.5,
+        "sampler_name": "Euler a",
+        "scheduler": "SGM Uniform",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.4,
+        "prefix": "masterpiece, best quality, masterpiece composition"
+    },
+    "akiumPrisma_29B": {
+        "width": 1024, "height": 1024,
+        "step": 40, "steps": 40,
+        "cfg": 5.5,
+        "sampler_name": "Euler a",
+        "scheduler": "SGM Uniform",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.4,
+        "prefix": "masterpiece, best quality, highres"
+    },
+    "anillustrious": {
+        "width": 1024, "height": 1024,
+        "step": 40, "steps": 40,
+        "cfg": 5.5,
+        "sampler_name": "Euler a",
+        "scheduler": "SGM Uniform",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.4,
+        "prefix": "masterpiece, best quality, highres"
+    },
+    "illustriousXL": {
+        "width": 1024, "height": 1024,
+        "step": 40, "steps": 40,
+        "cfg": 5.5,
+        "sampler_name": "Euler a",
+        "scheduler": "SGM Uniform",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.4,
+        "prefix": "masterpiece, best quality, highres, uncensored, anime style"
+    },
+    "waiIllustriousSDXL": {
+        "width": 1024, "height": 1024,
+        "step": 40, "steps": 40,
+        "cfg": 5.5,
+        "sampler_name": "Euler a",
+        "scheduler": "SGM Uniform",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.4,
+        "prefix": "masterpiece, best quality, highres"
+    },
+
+    # 🌟 Pony 계열 (DPM++ 2M + Karras)
+    "5moonPonyAsian_v10": {
         "width": 832, "height": 1216,
-        "steps": 30,             
-        "cfg": 6.5,              # 💡 모델이 과도하게 타버리지 않도록 CFG를 적정 수준으로 하향
-        # 💡 [핵심] 모델의 셀 채색/애니메이션 화풍을 존중하는 태그 구성
-        "prefix": "masterpiece, best quality, highres, anime style, flat color, clean lineart, vibrant colors, sharp focus, masterpiece composition"
+        "step": 30, "steps": 30,
+        "cfg": 6.0,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.35,
+        "prefix": "score_9, score_8_up, score_7_up, source_anime"
     },
-    "counterfeitV30": {"width": 512, "height": 768},
+    "aetherFaeSemi": {
+        "width": 832, "height": 1216,
+        "step": 40, "steps": 40,
+        "cfg": 6.0,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.35,
+        "prefix": "score_9, score_8_up, score_7_up, source_anime"
+    },
+    "prefectiousXLNSFW": {
+        "width": 832, "height": 1216,
+        "step": 40, "steps": 40,
+        "cfg": 6.0,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.35,
+        "prefix": "score_9, score_8_up, score_7_up"
+    },
+
+    # 🌟 SD 1.5 애니메이션 계열
+    "counterfeitV30": {
+        "width": 512, "height": 768,
+        "step": 25, "steps": 25,
+        "cfg": 7.5,
+        "sampler_name": "DDIM",
+        "scheduler": "Automatic",
+        "hires_upscaler": "R-ESRGAN 4x+ Anime6B",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 12,
+        "hires_denoising_strength": 0.55
+    },
+    "abyssorangemix2SFW": {
+        "width": 512, "height": 768,
+        "step": 40, "steps": 40,
+        "cfg": 7.0,
+        "sampler_name": "Euler a",
+        "scheduler": "Automatic",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.5
+    },
+    "anything45Inpainting": {
+        "width": 512, "height": 512,
+        "step": 40, "steps": 40,
+        "cfg": 7.0,
+        "sampler_name": "DDIM",
+        "scheduler": "Automatic",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.5
+    },
+    "anythingV3": {
+        "width": 512, "height": 768,
+        "step": 40, "steps": 40,
+        "cfg": 7.5,
+        "sampler_name": "Euler a",
+        "scheduler": "Automatic",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.5
+    },
+    "meinapastel": {
+        "width": 512, "height": 768,
+        "step": 40, "steps": 40,
+        "cfg": 7.0,
+        "sampler_name": "Euler a",
+        "scheduler": "Automatic",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.5
+    },
+
+    # 🌟 SD 1.5 실사 / 반실사 계열 (DPM++ 2M + Karras)
+    "Agent_Kalashnikov10": {
+        "width": 512, "height": 768,
+        "step": 40, "steps": 40,
+        "cfg": 7.0,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.45
+    },
+    "beretMixReal": {
+        "width": 512, "height": 768,
+        "step": 40, "steps": 40,
+        "cfg": 6.5,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.4
+    },
+    "moodyProMix": {
+        "width": 512, "height": 768,
+        "step": 40, "steps": 40,
+        "cfg": 7.0,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.45
+    },
+    "oneObsession": {
+        "width": 512, "height": 768,
+        "step": 40, "steps": 40,
+        "cfg": 7.0,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.4
+    },
+    "unnamedixlRealisticModel": {
+        "width": 832, "height": 1216, # SDXL 실사
+        "step": 40, "steps": 40,
+        "cfg": 5.5,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 1.5,
+        "hires_steps": 15,
+        "hires_denoising_strength": 0.35
+    },
+    "xeroxrealmix": {
+        "width": 512, "height": 768,
+        "step": 40, "steps": 40,
+        "cfg": 6.5,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.4
+    },
+    "zyntoonSemiRealistic": {
+        "width": 512, "height": 768,
+        "step": 40, "steps": 40,
+        "cfg": 7.0,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+        "hires_upscaler": "4x-UltraSharp",
+        "hires_upscale_by": 2.0,
+        "hires_steps": 20,
+        "hires_denoising_strength": 0.45
+    }
 }
+
 
 BLACKLIST = {
     'watermark',

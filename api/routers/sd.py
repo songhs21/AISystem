@@ -109,6 +109,19 @@ def generate(req: GenerateRequest):
     event: done      → {"gen_id": int, "image_path": str}
     event: error     → {"message": str}
     """
+
+    SAMPLER_MAP = {
+    "Euler a":    "euler_ancestral",
+    "Euler":      "euler",
+    "DPM++ 2M":   "dpmpp_2m",
+    "DDIM":       "ddim",
+    }
+    SCHEDULER_MAP = {
+        "Automatic":    "normal",
+        "SGM Uniform":  "sgm_uniform",
+        "Karras":       "karras",
+    }
+
     def stream():
         
         try:
@@ -138,6 +151,12 @@ def generate(req: GenerateRequest):
             if "steps" in cfg:
                 workflow["3"]["inputs"]["steps"] = cfg["steps"]
                 workflow["3"]["inputs"]["cfg"]   = cfg["cfg"]
+            if "sampler_name" in cfg:
+                comfy_sampler = SAMPLER_MAP.get(cfg["sampler_name"], "euler_ancestral")
+                workflow["3"]["inputs"]["sampler_name"] = comfy_sampler
+            if "scheduler" in cfg:
+                comfy_scheduler = SCHEDULER_MAP.get(cfg["scheduler"], "normal")
+                workflow["3"]["inputs"]["scheduler"] = comfy_scheduler
             
             # 프롬프트 조립 (모드 A: 사용자 입력 / 모드 B: txt 파일 랜덤 조합)
             print(f"[SD] 받은 prompt: '{req.prompt}'")
