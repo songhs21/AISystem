@@ -17,6 +17,8 @@ from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comf
 from core.db import get_conn
 import subprocess
 import time
+import json as _json
+from config.PATH import LORA_TRIGGERS
 
 # ── 워크플로우 로드 ───────────────────────────────────────
 
@@ -280,7 +282,9 @@ def run_inpaint(image_path: str, mask_path: str, checkpoint: str,
 def run_i2i(image_path: str, checkpoint: str,
             prompt: str, negative: str = "",
             denoise: float = 0.7, seed: int = -1,
+            lora_name: str = "", lora_strength: float = 0.8,
             client_id: str = None):
+
     if not is_comfy_alive():
         yield {"type": "progress", "value": 0.0, "text": "ComfyUI 시작 중..."}
         start_comfy()
@@ -307,6 +311,10 @@ def run_i2i(image_path: str, checkpoint: str,
     workflow["11"]["inputs"]["seed"]    = seed
     workflow["11"]["inputs"]["denoise"] = denoise
 
+     # LoRA 패치
+    if lora_name:
+        workflow = apply_lora_patch(workflow, lora_name, lora_strength, positive_node_id="6")
+
     origin_stem = os.path.splitext(filename)[0].strip()
     output_prefix = f"{origin_stem}_i2i"
     workflow["14"]["inputs"]["filename_prefix"] = output_prefix
@@ -326,11 +334,12 @@ def run_i2i(image_path: str, checkpoint: str,
 
     yield {"type": "done", "image_path": max(new_files, key=os.path.getctime)}
 
-    # ── i2i 마스크 ────────────────────────────────────────────
+# ── i2i 마스크 ────────────────────────────────────────────
 
 def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
                  prompt: str, negative: str = "",
                  denoise: float = 0.5, seed: int = -1,
+                 lora_name: str = "", lora_strength: float = 0.8,
                  client_id: str = None):
     if not is_comfy_alive():
         yield {"type": "progress", "value": 0.0, "text": "ComfyUI 시작 중..."}
@@ -373,6 +382,9 @@ def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
     workflow["8"]["inputs"]["seed"]     = seed
     workflow["8"]["inputs"]["denoise"]  = denoise
 
+    if lora_name:
+        workflow = apply_lora_patch(workflow, lora_name, lora_strength, positive_node_id="18")
+
     origin_stem = os.path.splitext(filename)[0].strip()
     output_prefix = f"{origin_stem}_i2i_mask"
     workflow["10"]["inputs"]["filename_prefix"] = output_prefix
@@ -391,3 +403,56 @@ def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
         raise RuntimeError(f"i2i 마스크 이미지를 찾을 수 없음 (패턴: {output_prefix}*.png)")
 
     yield {"type": "done", "image_path": max(new_files, key=os.path.getctime)}
+
+    
+# ── LoRA ────────────────────────────────────────────
+def find_node_by_type(workflow: dict, class_type: str) -> str | None:
+    for node_id, node in workflow.items():
+        if node.get("class_type") == class_type:
+            return node_id
+    return None
+
+
+def apply_lora_patch(workflow: dict, lora_name: str, strength: float = 0.8, positive_node_id: str = "6") -> dict:
+    import json as _json
+    from config.PATH import LORA_TRIGGERS
+
+    ckpt_id     = find_node_by_type(workflow, "CheckpointLoaderSimple")
+    ksampler_id = find_node_by_type(workflow, "KSampler")
+    if not ckpt_id or not ksampler_id:
+        return workflow
+
+    next_id = str(max(int(k) for k in workflow.keys()) + 1)
+
+    # LoraLoader 노드 추가
+    workflow[next_id] = {
+        "class_type": "LoraLoader",
+        "inputs": {
+            "model": [ckpt_id, 0],
+            "clip":  [ckpt_id, 1],
+            "lora_name": lora_name,
+            "strength_model": strength,
+            "strength_clip":  strength,
+        }
+    }
+
+    # KSampler model 연결을 LoraLoader로 변경
+    workflow[ksampler_id]["inputs"]["model"] = [next_id, 0]
+
+    # CLIPTextEncode clip 연결 변경
+    for node_id, node in workflow.items():
+        if node.get("class_type") == "CLIPTextEncode":
+            node["inputs"]["clip"] = [next_id, 1]
+
+    # 트리거 워드 positive 프롬프트 앞에 추가
+    try:
+        with open(LORA_TRIGGERS, encoding="utf-8") as f:
+            triggers = _json.load(f)
+        trigger = triggers.get(lora_name, "")
+        if trigger and "6" in workflow:
+            existing = workflow["6"]["inputs"].get("text", "")
+            workflow["6"]["inputs"]["text"] = f"{trigger}, {existing}" if existing else trigger
+    except Exception:
+        pass
+
+    return workflow

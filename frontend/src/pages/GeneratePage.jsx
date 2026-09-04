@@ -27,170 +27,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useCallback } from 'react'
-// ─── 카테고리 순서 ───────────────────────────────────────────────
-const CATEGORY_ORDER = [
-  'people', 'composition', 'character', 'hairstyle', 'body', 'Attire',
-  'pose', 'fetish', 'action', 'sexual_action', 'accessories'
-]
-
-
-// ─── 서브카테고리 설정 ───────────────────────────────────────────
-const CATEGORY_CONFIG = {
-  people: [
-    { key: 'people.number_of_people', label: '인원수', multi: false }
-  ],
-  composition: [
-    { key: 'composition.angle', label: '앵글', multi: false },
-    { key: 'composition.layout_and_composition', label: '구도', multi: false },
-    { key: 'composition.border_layout', label: '테두리', multi: true },
-    { key: 'composition.viewer_focus', label: '시선 초점', multi: false },
-    { key: 'composition.body_focus', label: '신체 초점', multi: true },
-    { key: 'composition.subject_focus', label: '대상 초점', multi: false },
-  ],
-  character: [
-    { key: 'character.race', label: '종족', multi: false },
-    { key: 'character.state', label: '상태', multi: true },
-    { key: 'character.organization', label: '소속', multi: false },
-    { key: 'character.alteration', label: '변형', multi: true },
-    { key: 'character.game_character', label: '게임 캐릭터', multi: true },
-  ],
-  hairstyle: [
-    { key: 'hairstyle.combinable.bangs', label: '앞머리', multi: true },
-    { key: 'hairstyle.combinable.hair_elements', label: '헤어 요소', multi: true },
-    { key: 'hairstyle.combinable.overall_style', label: '전체 스타일', multi: true },
-    { key: 'hairstyle.combinable.length', label: '길이', multi: false },
-    { key: 'hairstyle.combinable.curl', label: '웨이브', multi: false },
-    { key: 'hairstyle.combinable.hair_color', label: '색상', multi: false },
-    { key: 'hairstyle.combinable.multicolor', label: '멀티컬러', multi: true },
-    { key: 'hairstyle.combinable.side_hair', label: '옆머리', multi: true },
-    { key: 'hairstyle.combinable.state', label: '상태', multi: true },
-    { key: 'hairstyle.combinable.facial_hair', label: '수염', multi: true },
-    { key: 'hairstyle.non_combinable.specific_style', label: '특수 스타일 (단일)', multi: false },
-    { key: 'hairstyle.non_combinable.alternate_style', label: '대체 스타일', multi: false },
-  ],
-  Attire: [
-    { key: 'Attire.fabric_and_material', label: '소재', multi: true },
-    { key: 'Attire.torn_damaged', label: '손상', multi: true },
-    { key: 'Attire.clothing_state', label: '착용 상태', multi: true },
-    { key: 'Attire.fashion', label: '패션', multi: true },
-    { key: 'Attire.tops', label: '상의', multi: true, exclusiveWith: ['Attire.one_piece'] },
-    { key: 'Attire.top_cutout', label: '상의 컷아웃', multi: true },
-    { key: 'Attire.bottoms', label: '하의', multi: true, exclusiveWith: ['Attire.one_piece'] },
-    { key: 'Attire.bottom_cutout', label: '하의 컷아웃', multi: true },
-    { key: 'Attire.one_piece', label: '원피스', multi: false, exclusiveWith: ['Attire.tops', 'Attire.bottoms'] },
-    { key: 'Attire.outerwear', label: '아우터', multi: true },
-    { key: 'Attire.cape', label: '망토', multi: false },
-    { key: 'Attire.armor', label: '갑옷', multi: true },
-    { key: 'Attire.uniform', label: '유니폼', multi: false },
-    { key: 'Attire.traditional', label: '전통 의상', multi: false },
-    { key: 'Attire.sleeve', label: '소매', multi: true },
-    { key: 'Attire.pattern_clothes', label: '패턴', multi: true },
-    { key: 'Attire.pajamas', label: '파자마', multi: false },
-    { key: 'Attire.print_pattern', label: '프린트', multi: true },
-    { key: 'Attire.brassiere', label: '브라', multi: false },
-    { key: 'Attire.panties', label: '팬티', multi: false },
-    { key: 'Attire.lingerie', label: '란제리', multi: false, exclusiveWith: ['Attire.bikinis', 'Attire.one_piece_swimsuit'] },
-    { key: 'Attire.bikinis', label: '비키니', multi: true, exclusiveWith: ['Attire.one_piece_swimsuit', 'Attire.lingerie'] },
-    { key: 'Attire.one_piece_swimsuit', label: '원피스 수영복', multi: false, exclusiveWith: ['Attire.bikinis', 'Attire.lingerie'] },
-    { key: 'Attire.underwear_general', label: '속옷 일반', multi: true },
-    { key: 'Attire.legwear', label: '레그웨어', multi: true },
-    { key: 'Attire.footwear', label: '신발', multi: false },
-    { key: 'Attire.collar_detail', label: '칼라', multi: true },
-    { key: 'Attire.cosplay', label: '코스프레', multi: false },
-    { key: 'Attire.outfit_change', label: '의상 변경', multi: false },
-    { key: 'Attire.apron', label: '앞치마', multi: false },
-    { key: 'Attire.sarong', label: '사롱', multi: false },
-  ],
-  fetish: [
-    { key: 'fetish.fluid', label: '체액', multi: true },
-    { key: 'fetish.expression_orgasm', label: '오르가즘 표정', multi: true },
-    { key: 'fetish.after_sex_state', label: '사후 상태', multi: true },
-    { key: 'fetish.bdsm_restraint', label: 'BDSM', multi: true },
-    { key: 'fetish.subculture_fetish', label: '서브컬처 페티시', multi: true },
-    { key: 'fetish.situation_action', label: '상황/행동', multi: true },
-    { key: 'fetish.visual_item', label: '시각적 아이템', multi: true },
-    { key: 'fetish.sexual_features', label: '신체 특징', multi: true },
-    { key: 'fetish.sexual_positions', label: '체위/자세', multi: true },
-    { key: 'fetish.censorship', label: '검열', multi: false },
-    { key: 'fetish.nipple_accessory', label: '유두 액세서리', multi: true },
-    { key: 'fetish.full_body_nudity', label: '나체', multi: true },
-  ],
-  pose: [
-    { key: 'combinable.head_hair_face', label: '머리/얼굴', multi: true },
-    { key: 'combinable.arm_pose', label: '팔 포즈', multi: true },
-    { key: 'combinable.hand_gesture', label: '손 제스처', multi: true },
-    { key: 'combinable.head_hair_clothing', label: '머리/의상', multi: true },
-    { key: 'combinable.clothing_action', label: '의상 동작', multi: true },
-    { key: 'non_combinable.full_body_pose', label: '전신 포즈 (단일)', multi: false },
-    { key: 'non_combinable.arm_pose', label: '팔 포즈 (단일)', multi: false },
-    { key: 'non_combinable.leg_pose', label: '다리 포즈 (단일)', multi: false },
-    { key: 'non_combinable.appeal', label: '어필 포즈', multi: true },
-    { key: 'non_combinable.action_pose', label: '액션 포즈', multi: true },
-  ],
-  action: [
-    { key: 'action.holding_weapon', label: '무기 들기', multi: true },
-    { key: 'action.holding_object_generic', label: '물건 들기', multi: true },
-    { key: 'action.holding_flora_animal', label: '생물/꽃 들기', multi: true },
-    { key: 'action.holding_everyday_items', label: '일상 아이템', multi: true },
-    { key: 'action.body_activity', label: '신체 활동', multi: false },
-    { key: 'action.daily_activity', label: '일상 활동', multi: false },
-    { key: 'interaction.affection_embrace', label: '애정/포옹', multi: true },
-    { key: 'interaction.oral_intimacy', label: '구강 친밀', multi: true },
-    { key: 'interaction.communication_expression', label: '소통/표현', multi: true },
-    { key: 'interaction.playful_interaction', label: '장난', multi: true },
-  ],
-  sexual_action: [
-    { key: 'sexual_action.insertion_sex', label: '삽입', multi: true },
-    { key: 'sexual_action.non_insertion_sex', label: '비삽입', multi: true },
-    { key: 'sexual_action.masturbation', label: '자위', multi: true },
-    { key: 'sexual_action.group_sex', label: '그룹', multi: true },
-    { key: 'sexual_action.special_situations', label: '특수 상황', multi: true },
-  ],
-  accessories: [
-    { key: 'accessory.headwear.hat', label: '모자', multi: false },
-    { key: 'accessory.headwear.helmet', label: '헬멧', multi: false },
-    { key: 'accessory.headwear.crown', label: '왕관', multi: false },
-    { key: 'accessory.headwear.hood', label: '후드', multi: false },
-    { key: 'accessory.headwear.headband', label: '헤드밴드', multi: false },
-    { key: 'accessory.headwear.veil', label: '베일', multi: false },
-    { key: 'accessory.hair_accessory.hair_ornament', label: '헤어 장식', multi: true },
-    { key: 'accessory.hair_accessory.hairpin', label: '헤어핀', multi: true },
-    { key: 'accessory.hair_accessory.hairband', label: '머리띠', multi: false },
-    { key: 'accessory.hair_accessory.hair_tie', label: '머리끈', multi: false },
-    { key: 'accessory.eyewear', label: '안경/고글', multi: false },
-    { key: 'accessory.earwear', label: '귀걸이', multi: true },
-    { key: 'accessory.neckwear.necktie', label: '넥타이', multi: false },
-    { key: 'accessory.neckwear.bowtie', label: '나비넥타이', multi: false },
-    { key: 'accessory.neckwear.choker', label: '초커', multi: false },
-    { key: 'accessory.neckwear.necklace', label: '목걸이', multi: true },
-    { key: 'accessory.neckwear.scarf', label: '스카프', multi: false },
-    { key: 'accessory.handwear.gloves', label: '장갑', multi: false },
-    { key: 'accessory.handwear.ring', label: '반지', multi: true },
-    { key: 'accessory.armwear.bracelet', label: '팔찌', multi: true },
-    { key: 'accessory.armwear.armband', label: '완장', multi: true },
-    { key: 'accessory.bodywear.belt', label: '벨트', multi: false },
-    { key: 'accessory.bodywear.harness', label: '하네스', multi: false },
-    { key: 'accessory.legwear_accessory.thigh', label: '허벅지 스트랩', multi: true },
-    { key: 'accessory.legwear_accessory.garter', label: '가터', multi: false },
-    { key: 'accessory.jewelry.general', label: '주얼리', multi: true },
-    { key: 'accessory.bag', label: '가방', multi: false },
-    { key: 'accessory.misc.ribbon', label: '리본', multi: true },
-    { key: 'accessory.mask_costume.mask', label: '마스크', multi: false },
-  ],
-  body: [
-    { key: 'body.body_shape', label: '체형', multi: true },
-    { key: 'body.breast_size', label: '가슴 사이즈', multi: false },
-    { key: 'body.makeup.eye', label: '아이 메이크업', multi: true },
-    { key: 'body.makeup.lip', label: '립', multi: true },
-    { key: 'body.makeup.face', label: '페이스', multi: true },
-    { key: 'body.nail.hand', label: '손톱', multi: true },
-    { key: 'body.facial_hair', label: '수염', multi: true },
-    { key: 'body.piercing', label: '피어싱', multi: true },
-    { key: 'body.tattoo_marking.motif', label: '문신', multi: true },
-    { key: 'body.bandage_injury', label: '붕대/부상', multi: true },
-  ],
-}
-
+import { CATEGORY_CONFIG, CATEGORY_ORDER } from '../constants/tagConfig'
 
 // ─── 유틸 함수 ───────────────────────────────────────────────────
 function getByPath(obj, path) {
@@ -270,7 +107,6 @@ export default function GeneratePage() {
 
   // 드롭박스 모드 state
   const [manualTags, setManualTags] = useState([])
-  
   const [dropSelections, setDropSelections] = useState(() => {
     try {
       const saved = localStorage.getItem('dropSelections')
@@ -294,13 +130,15 @@ export default function GeneratePage() {
   const [isDraggingTag, setIsDraggingTag] = useState(false)
   const [globalNavIndex, setGlobalNavIndex] = useState(-1)
 
-  // i2i 모드 state
+  // 텍스트 모드 state
   const [textPrompt, setTextPrompt] = useState('')
   const [textRandom, setTextRandom] = useState({})           // { cat: bool }
   const [textRandomFixed, setTextRandomFixed] = useState({}) // { cat: en }
   const [globalSearch, setGlobalSearch] = useState('')
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [openSubs, setOpenSubs] = useState(new Set())
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  // i2i 모드 state
   const [i2iBaseImage, setI2iBaseImage] = useState(null)   // { path, filename, src }
   const [i2iMaskImage, setI2iMaskImage] = useState(null)
   const [i2iRefImage, setI2iRefImage]   = useState(null)
@@ -314,6 +152,9 @@ export default function GeneratePage() {
   const [showMaskDraw, setShowMaskDraw]   = useState(false)
   const [i2iMaskBlob, setI2iMaskBlob]     = useState(null)  // 완료된 마스크 blob
   const [i2iMaskSrc, setI2iMaskSrc]       = useState(null)  // 썸네일용 src
+  // LoRA
+  const [loraName, setLoraName]         = useState('')
+  const [loraStrength, setLoraStrength] = useState(0.8)
 
   // 프로그레스
   const { progress, statusText, running, error, run } = useSSE()
@@ -323,11 +164,9 @@ export default function GeneratePage() {
   const catRefs = useRef({})
   const subRefs = useRef({})
 
-  // 초기 state 선언 시 localStorage에서 복원
-
-  
-
-  
+  // 검색 및 fuse
+  const fuseRef = useRef(null)
+  const [debouncedSearch, setDebouncedSearch] = useState('')
 
   const sensors = useSensors(useSensor(PointerSensor, {
     activationConstraint: { distance: 5 }  // 드래그 최소 임계점 (px)
@@ -343,6 +182,12 @@ export default function GeneratePage() {
     if (checkpoints.length && !checkpoint) setCheckpoint(checkpoints[1])
   }, [checkpoints])
 
+  //LoRA
+  const { data: loraData } = useQuery({
+    queryKey: ['loras'],
+    queryFn: () => sdApi.loras().then(r => r.data),
+  })
+  const loras = loraData?.loras || []
 
   // ── 네거티브 초기값 ──
   const { data: constants } = useQuery({
@@ -449,7 +294,7 @@ export default function GeneratePage() {
 
   const finalPrompt = mode === 'dropdown' ? dropPrompt : textFinalPrompt
 
-    // ── 전체 태그 플랫 리스트 (useMemo, koMap 선언 다음) ──
+  // ── 전체 태그 플랫 리스트 (useMemo, koMap 선언 다음) ──
   const allTagsFlat = useMemo(() => {
     const result = []
     for (const cat of CATEGORY_ORDER) {
@@ -466,16 +311,17 @@ export default function GeneratePage() {
   }, [tagFileData])
 
   // ── 전체 검색 결과 ──
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(globalSearch), 150)
+    return () => clearTimeout(timer)
+  }, [globalSearch])
+
   const globalResults = useMemo(() => {
-    if (!globalSearch.trim()) return []
-    const fuse = new Fuse(allTagsFlat, {
-      keys: ['en', 'ko'],
-      threshold: 0.4,
-      distance: 100,
-      includeScore: true,
-    })
-    return fuse.search(globalSearch).map(r => r.item).slice(0, 30)
-  }, [globalSearch, allTagsFlat])
+    if (!debouncedSearch.trim()) return []
+    if (!fuseRef.current) return []
+    return fuseRef.current.search(debouncedSearch).map(r => r.item).slice(0, 30)
+  }, [debouncedSearch])
+
 
   // img 1600px 체크 함수
   function checkImageSize(file) {
@@ -492,6 +338,18 @@ export default function GeneratePage() {
       img.src = URL.createObjectURL(file)
     })
   }
+  
+  // fuse 캐싱
+  useEffect(() => {
+    fuseRef.current = new Fuse(allTagsFlat, {
+      keys: ['en', 'ko'],
+      threshold: 0.4,
+      distance: 100,
+      includeScore: true,
+    })
+  }, [allTagsFlat])
+
+
 
   async function handleI2iUpload(e, setSlot) {
     const file = e.target.files?.[0]
@@ -529,14 +387,18 @@ export default function GeneratePage() {
     if (mode === 'i2i') {
       if (!i2iBaseImage) { alert('베이스 이미지를 선택해주세요'); return }
 
+      // 히스토리 이미지면 path 직접 사용, 업로드면 서버로 전송 필요
       let imagePath = i2iBaseImage.path || ''
 
       if (!i2iBaseImage.fromHistory) {
+        // 파일 업로드 → /api/system/upload 로 전송 (추후 엔드포인트 추가 필요)
+        // 임시: COMFY_INPUT에 저장하는 엔드포인트 필요
         alert('파일 업로드 엔드포인트 미구현 — 히스토리 이미지를 사용해주세요')
         return
       }
 
       if (i2iMaskBlob) {
+        // 마스크 있으면 i2i-mask 엔드포인트
         const form = new FormData()
         form.append('image_path', imagePath)
         form.append('checkpoint', checkpoint)
@@ -545,13 +407,25 @@ export default function GeneratePage() {
         form.append('denoise', i2iDenoise)
         form.append('seed', i2iSeed)
         form.append('mask_file', i2iMaskBlob, 'mask.png')
+        form.append('lora_name', loraName)
+        form.append('lora_strength', loraStrength)
 
         await run(
-          sdApi.i2iMaskUrl(),
-          form,
-          { onDone: async (data) => { setResult(data) } }
-        )
+        sdApi.i2iMaskUrl(),
+        form,
+        {
+          onDone: async (data) => {
+            setResult(data)
+            try {
+              const gen = await historyApi.generation(data.gen_id)
+              setUsedPrompt(gen.data.prompt || '')
+              setTags(gen.data.tags || [])
+            } catch(e) { console.error('태그 조회 실패:', e) }
+          }
+        }
+      )
       } else {
+        // 마스크 없으면 기존 i2i
         await run(
           sdApi.i2iUrl(),
           {
@@ -561,11 +435,13 @@ export default function GeneratePage() {
             negative: i2iNegative || negative,
             denoise: i2iDenoise,
             seed: i2iSeed,
+            lora_name: loraName,
+            lora_strength: loraStrength,
           },
           { onDone: async (data) => { setResult(data) } }
         )
       }
-      return  // ← i2i 블록 끝에서 return
+      return
     }
 
   // 기존 드롭박스 모드 생성
@@ -582,12 +458,14 @@ export default function GeneratePage() {
     }
   }
 
-  const prompt = parts.filter(Boolean).join(', ')
+  const prompt = [...parts, ...manualTags].filter(Boolean).join(', ')
   console.log('[Generate] mode:', mode, 'prompt:', prompt)
+  console.log('[Generate] loraName:', loraName, 'loraStrength:', loraStrength)
+  console.log('[Generate] run payload:', { prompt, negative, checkpoint, lora_name: loraName, lora_strength: loraStrength })
 
   await run(
     sdApi.generateUrl(),
-    { prompt, negative, checkpoint },
+    { prompt, negative, checkpoint, lora_name: loraName, lora_strength: loraStrength },
     {
       onDone: async (data) => {
         setResult(data)
@@ -643,7 +521,7 @@ export default function GeneratePage() {
         }}
         {...attributes}
         {...listeners}
-        onClick={onClick}
+        onClick={onClick}  // ← 클릭 시 제거
       >
         {label}
         <button
@@ -723,37 +601,33 @@ export default function GeneratePage() {
               onFocus={() => setGlobalSearchOpen(true)}
               onBlur={() => setTimeout(() => { setGlobalSearchOpen(false); setGlobalNavIndex(-1) }, 150)}
               onKeyDown={e => {
-                if (!globalSearchOpen || globalResults.length === 0) return
                 if (e.key === 'ArrowDown') {
+                  if (!globalSearchOpen || globalResults.length === 0) return
                   e.preventDefault()
                   setGlobalNavIndex(prev => Math.min(prev + 1, globalResults.length - 1))
                 } else if (e.key === 'ArrowUp') {
+                  if (!globalSearchOpen || globalResults.length === 0) return
                   e.preventDefault()
                   setGlobalNavIndex(prev => Math.max(prev - 1, 0))
                 } else if (e.key === 'Enter') {
-                    e.preventDefault()
-                    if (globalNavIndex >= 0) {
-                      // 방향키로 선택된 항목 추가
-                      const t = globalResults[globalNavIndex]
-                      if (!t) return
-                      const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
-                      const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
-                      setDropSelections(prev => {
-                        const cur = prev[t.subKey] || []
-                        if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
-                        if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
-                        return { ...prev, [t.subKey]: [...cur, t.en] }
-                      })
-                      setGlobalSearch('')
-                      setGlobalSearchOpen(false)
-                      setGlobalNavIndex(-1)
-                    } else if (globalSearch.trim()) {
-                      // 직접 입력 태그로 추가
-                      setManualTags(prev => [...prev, globalSearch.trim()])
-                      setGlobalSearch('')
-                      setGlobalSearchOpen(false)
-                    }
+                  e.preventDefault()
+                  if (globalNavIndex >= 0 && globalResults[globalNavIndex]) {
+                    const t = globalResults[globalNavIndex]
+                    const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
+                    const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
+                    setDropSelections(prev => {
+                      const cur = prev[t.subKey] || []
+                      if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
+                      if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
+                      return { ...prev, [t.subKey]: [...cur, t.en] }
+                    })
+                  } else if (globalSearch.trim()) {
+                    setManualTags(prev => [...prev, globalSearch.trim()])
                   }
+                  setGlobalSearch('')
+                  setGlobalSearchOpen(false)
+                  setGlobalNavIndex(-1)
+                }
               }}
               style={{ fontSize: 12 }}
             />
@@ -804,50 +678,7 @@ export default function GeneratePage() {
               </div>
             )}
           </div>
-
-          {/* 1차 카테고리 버튼 */}
-          {mode === 'dropdown' && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {CATEGORY_ORDER.map(cat => (
-                <button key={cat} className="btn btn-ghost"
-                  style={{ fontSize: 11, padding: '3px 8px',
-                    ...(selectedNav === cat ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
-                  onClick={() => {
-                    setSelectedNav(cat)
-                    catRefs.current[cat]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                  }}>
-                  {cat}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* 2차 카테고리 버튼 */}
-          {mode === 'dropdown' && selectedNav && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {(CATEGORY_CONFIG[selectedNav] || []).map(sub => (
-                <button key={sub.key} className="btn btn-ghost"
-                  style={{ fontSize: 11, padding: '2px 6px' }}
-                  onClick={() => {
-                    const subKey = `${selectedNav}.${sub.key}`
-                    setOpenSubs(prev => {
-                      const s = new Set(prev)
-                      if (s.has(subKey)) {
-                        s.delete(subKey)
-                        return s
-                      }
-                      s.add(subKey)
-                      return s
-                    })
-                    setTimeout(() => {
-                      subRefs.current[subKey]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }, 50)
-                  }}>
-                  {sub.label}
-                </button>
-              ))}
-            </div>
-          )}
+          
 
           {/* 최종 프롬프트 미리보기 */}
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
@@ -926,25 +757,118 @@ export default function GeneratePage() {
                 </SortableContext>
               </DndContext>
             )}
+            {/* 직접 입력 태그 */}
+            {manualTags.map((tag, i) => (
+            <div key={`manual-${i}`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                background: 'var(--bg3)', border: '1px solid var(--success)',
+                borderRadius: 4, padding: '2px 6px', fontSize: 11,
+                color: 'var(--success)',
+              }}
+            >
+              {tag}
+              <button
+                onPointerDown={e => e.stopPropagation()}
+                onClick={() => setManualTags(prev => prev.filter((_, idx) => idx !== i))}
+                style={{ background: 'none', border: 'none', color: 'var(--success)', cursor: 'pointer', padding: 0, fontSize: 11 }}
+              >×</button>
+              
+            </div>
+            ))}
           </div>
-          {/* 직접 입력 태그 */}
-              {manualTags.map((tag, i) => (
-                <div key={`manual-${i}`}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 3,
-                    background: 'var(--bg3)', border: '1px solid var(--success)',
-                    borderRadius: 4, padding: '2px 6px', fontSize: 11,
-                    color: 'var(--success)',
-                  }}
-                >
-                  {tag}
-                  <button
-                    onPointerDown={e => e.stopPropagation()}
-                    onClick={() => setManualTags(prev => prev.filter((_, idx) => idx !== i))}
-                    style={{ background: 'none', border: 'none', color: 'var(--success)', cursor: 'pointer', padding: 0, fontSize: 11 }}
-                  >×</button>
+          
+          {/* LoRA */}
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>🎨 LoRA</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <select
+                value={loraName}
+                onChange={e => {
+                  console.log('[LoRA] selected:', e.target.value)
+                  setLoraName(e.target.value)}}
+                style={{ fontSize: 12 }}
+              >
+                <option value="">LoRA 없음</option>
+                {loras.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              {loraName && (
+                <>
+                  <label>Strength: {loraStrength}</label>
+                  <input
+                    type="range" min={0} max={1} step={0.05}
+                    value={loraStrength}
+                    onChange={e => setLoraStrength(+e.target.value)}
+                    style={{ padding: 0, border: 'none', background: 'none' }}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+          {/* 부정 프롬프트 */}
+          {mode === 'dropdown' && (
+            <div>
+              <label>❌ 부정 프롬프트</label>
+              <textarea value={negative} onChange={e => setNegative(e.target.value)}
+                style={{ height: 56, resize: 'vertical', fontSize: 11 }} />
+            </div>
+          )}
+
+          {/* 고급 옵션 토글 */}
+          {mode === 'dropdown' && (
+            <div>
+              <button
+                className="btn btn-ghost"
+                style={{ width: '100%', fontSize: 11, padding: '4px 8px', textAlign: 'left' }}
+                onClick={() => setShowAdvanced(v => !v)}
+              >
+                {showAdvanced ? '▼' : '▶'} 고급 옵션 (카테고리 네비)
+              </button>
+
+              {showAdvanced && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                  {/* 1차 카테고리 버튼 */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {CATEGORY_ORDER.map(cat => (
+                      <button key={cat} className="btn btn-ghost"
+                        style={{ fontSize: 11, padding: '3px 8px',
+                          ...(selectedNav === cat ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                        onClick={() => {
+                          setSelectedNav(cat)
+                          catRefs.current[cat]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        }}>
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* 2차 카테고리 버튼 */}
+                  {selectedNav && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {(CATEGORY_CONFIG[selectedNav] || []).map(sub => (
+                        <button key={sub.key} className="btn btn-ghost"
+                          style={{ fontSize: 11, padding: '2px 6px' }}
+                          onClick={() => {
+                            const subKey = `${selectedNav}.${sub.key}`
+                            setOpenSubs(prev => {
+                              const s = new Set(prev)
+                              if (s.has(subKey)) { s.delete(subKey); return s }
+                              s.add(subKey)
+                              return s
+                            })
+                            setTimeout(() => {
+                              subRefs.current[subKey]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                            }, 50)
+                          }}>
+                          {sub.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
+              )}
+            </div>
+          )}
         </div>
 
         {/* 스크롤 영역 */}
@@ -1084,7 +1008,7 @@ export default function GeneratePage() {
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, maxHeight: 120, overflowY: 'auto', padding: '2px 0' }}>
                               {(() => {
                                 const fuse = buildFuse(list)
-                                const filtered = list  // 검색은 전체 검색창으로 통합됐으니 전체 표시
+                                const filtered = list
                                 return filtered.map(t => {
                                   const isSelected = selected.includes(t.en)
                                   return (
@@ -1192,18 +1116,11 @@ export default function GeneratePage() {
         </div>
       </div>
 
-      {/* 우: 부정 프롬프트 */}
-      <div style={{ width: '18%', minWidth: 200, flexShrink: 0, borderLeft: '1px solid var(--border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
-        <label>❌ 부정 프롬프트</label>
-        <textarea value={negative} onChange={e => setNegative(e.target.value)}
-          style={{ flex: 1, minHeight: 120, resize: 'vertical' }} />
-      </div>
-
       {/* 태그 패널 오버레이 */}
       {result && tags.length > 0 && (
         <div style={{
           position: 'fixed', top: 0, right: 0, bottom: 0,
-          width: tagPanelOpen ? '55%' : '40px', minWidth: tagPanelOpen ? 320 : 40,
+          width: tagPanelOpen ? '35%' : '40px', minWidth: tagPanelOpen ? 320 : 40,
           background: 'var(--bg2)',
           borderLeft: '1px solid var(--border)',
           display: 'flex', flexDirection: 'column',

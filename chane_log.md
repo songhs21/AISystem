@@ -325,3 +325,31 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 - 이유: 모델별 권장 설정 준수로 생성 품질 최적화. A1111과 ComfyUI의 sampler/scheduler 명칭이 달라 매핑 테이블 필요
 - 대안: 없음
 - 변경 파일: config/constants.py, api/routers/sd.py
+
+
+## v1.2.3 LoRA 지원 추가
+
+### 16. LoRA 동적 패치 지원
+
+- 변경: 드롭박스/i2i/i2i-mask 모드 전체에 LoRA 적용 기능 추가
+- 문제/배경: 특정 캐릭터/화풍 재현을 위해 LoRA 적용 필요. JSON 파일 분리 방식은 기능 조합 증가 시 파일 수 기하급수적 증가
+- 결정: Python 패치 함수 방식으로 베이스 워크플로우에 동적 노드 추가. find_node_by_type()으로 노드 ID 하드코딩 없이 탐색
+- 이유: 워크플로우 JSON 파일 추가 없이 기능 조합 자유롭게 확장 가능. ControlNet/IP-Adapter 추가 시 동일 패턴 재사용
+- 대안: 기능 조합별 JSON 파일 분리 관리 (A안) — 조합 증가 시 최대 16개 파일 필요로 기각
+
+- 변경 파일:
+```
+  - config/PATH.py — LORA_DIR 추가
+  - core/image/generate.py — find_node_by_type(), apply_lora_patch() 추가, run_i2i/run_i2i_mask 시그니처에 lora_name/lora_strength 추가
+  - api/routers/sd.py — GenerateRequest/I2IRequest lora 필드 추가, /loras 엔드포인트 추가, i2i-mask Form 파라미터 추가, 중복 GenerateRequest 선언 제거
+  - src/api/client.js — sdApi.loras() 추가
+  - src/pages/GeneratePage.jsx — loraName/loraStrength state 추가, LoRA UI 추가, generate 함수 전 엔드포인트 payload에 lora 파라미터 반영
+  ```
+
+### 17. 전체 태그 검색 버그 수정 및 성능 개선
+
+- 변경: 검색 결과 없을 때 엔터 입력 시 manualTags 추가 안 되는 버그 수정, Fuse 검색 성능 개선
+- 문제/배경: globalResults.length === 0 조건에서 early return해버려 검색 결과 없는 태그를 엔터로 추가 불가. 매 입력마다 Fuse 인스턴스 새로 생성 + 6449개 전체 순회로 14자 이상 입력 시 버벅임
+- 결정: 방향키/엔터 조건 분리. Fuse 인스턴스 useRef로 캐싱, 검색에 150ms 디바운스 적용
+- 이유: 검색 결과 없는 태그도 manualTags로 추가 가능해야 함. Fuse 인스턴스 재생성 비용 제거 + 디바운스로 타이핑 중 불필요한 순회 방지
+- 변경 파일: src/pages/GeneratePage.jsx

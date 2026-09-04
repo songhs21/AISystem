@@ -12,12 +12,6 @@ from core.image.generate import run_comfy, run_upscale, load_upscale_workflow, i
 from core.image.preference import save_generation_start, get_generation_by_prompt_id, update_upscaled_image
 from core.system.watcher import watch_comfy
 from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comfy
-from config.PATH import (
-    POSES_PATH, MOUTH_STYLE,
-    HAIR_LENGTH, HAIR_STYLE, BANGS, HAIR_DETAILS, HAIR_ACCESSORIES,
-    COSTUME_BASE, TOP_STYLE, BOTTOM_STYLE, OUTERWEAR, FASHION_THEME, SEASON_COSTUME,
-    DESIGN_DETAILS, MATERIAL_DETAILS, ACCESSORIES, LEGWEAR, FOOTWEAR,
-)
 import random
 from functools import lru_cache
 import uuid
@@ -41,7 +35,6 @@ def get_local_upscale_models() -> list[str]:
         return []
     return sorted([f for f in os.listdir(str(UPSCALE_MODEL_DIR)) if f.endswith(('.pth', '.pt'))])
 
-
 def get_model_config(checkpoint_name: str) -> dict:
     name = checkpoint_name.lower()
     for key, config in MODEL_RESOLUTION.items():
@@ -49,6 +42,11 @@ def get_model_config(checkpoint_name: str) -> dict:
             return config
     return {"width": 832, "height": 1216}
 
+def get_local_loras() -> list[str]:
+    from config.PATH import LORA_DIR
+    if not os.path.exists(str(LORA_DIR)):
+        return []
+    return sorted([f for f in os.listdir(str(LORA_DIR)) if f.endswith('.safetensors')])
 
 def load_workflow() -> dict:
     with open(WORKFLOW_PATH, "r", encoding="utf-8") as f:
@@ -65,8 +63,9 @@ class GenerateRequest(BaseModel):
     prompt: str = ""
     negative: str = ""
     checkpoint: str
-    seed: int = -1  # -1이면 랜덤
-
+    seed: int = -1
+    lora_name: str = ""
+    lora_strength: float = 0.8
 
 class UpscaleRequest(BaseModel):
     gen_id: int
@@ -83,6 +82,8 @@ class I2IRequest(BaseModel):
     negative: str = ""
     denoise: float = 0.7
     seed: int = -1
+    lora_name: str = ""
+    lora_strength: float = 0.8
 
 # ── 엔드포인트 ────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ def generate(req: GenerateRequest):
     def stream():
         
         try:
-                
+            print(f"[SD] lora_name={req.lora_name}, lora_strength={req.lora_strength}")
             # ComfyUI 자동 기동
             if not is_comfy_alive():
                 yield f"event: progress\ndata: {json.dumps({'value': 0.0, 'text': 'ComfyUI 시작 중...'})}\n\n"
@@ -157,9 +158,12 @@ def generate(req: GenerateRequest):
             if "scheduler" in cfg:
                 comfy_scheduler = SCHEDULER_MAP.get(cfg["scheduler"], "normal")
                 workflow["3"]["inputs"]["scheduler"] = comfy_scheduler
+            if req.lora_name:
+                from core.image.generate import apply_lora_patch
+                workflow = apply_lora_patch(workflow, req.lora_name, req.lora_strength, positive_node_id="6")
             
             # 프롬프트 조립 (모드 A: 사용자 입력 / 모드 B: txt 파일 랜덤 조합)
-            print(f"[SD] 받은 prompt: '{req.prompt}'")
+            print(f"[SD] 받은 prompt: '{req.prompt}', '{req.lora_name}'")
             if req.prompt.strip():
                 core_prompt = req.prompt.strip()
                 print(f"[SD] 모드 A")
@@ -251,10 +255,13 @@ def i2i(req: I2IRequest):
     """
     def stream():
         try:
+            # i2i 엔드포인트는 run_i2i 내부에서 workflow 로드하므로
+            # run_i2i 파라미터로 lora 정보 전달 필요
             for event in run_i2i(
                 req.image_path, req.checkpoint,
                 req.prompt, req.negative,
-                req.denoise, req.seed
+                req.denoise, req.seed,
+                req.lora_name, req.lora_strength
             ):
                 if event["type"] == "progress":
                     yield f"event: progress\ndata: {json.dumps({'value': event['value'], 'text': event['text']})}\n\n"
@@ -275,6 +282,8 @@ async def i2i_mask(
     negative:    Annotated[str,   Form()] = "",
     denoise:     Annotated[float, Form()] = 0.5,
     seed:        Annotated[int,   Form()] = -1,
+    lora_name:     Annotated[str,   Form()] = "",
+    lora_strength: Annotated[float, Form()] = 0.8,
     mask_file:   UploadFile = File(None),
 ):
     # 마스크 blob을 임시 파일로 저장
@@ -289,7 +298,8 @@ async def i2i_mask(
         try:
             for event in run_i2i_mask(
                 image_path, tmp_mask_path or mask_path,
-                checkpoint, prompt, negative, denoise, seed
+                checkpoint, prompt, negative, denoise, seed,
+                lora_name, lora_strength
             ):
                 if event["type"] == "progress":
                     yield f"event: progress\ndata: {json.dumps({'value': event['value'], 'text': event['text']})}\n\n"
@@ -306,3 +316,7 @@ async def i2i_mask(
                     pass
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.get("/loras")
+def list_loras():
+    return {"loras": get_local_loras()}

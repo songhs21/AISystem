@@ -13,6 +13,7 @@ export const client = axios.create({
 export const sdApi = {
   checkpoints: () => client.get('/api/sd/checkpoints'),
   upscaleModels: () => client.get('/api/sd/upscale-models'),
+  loras: () => client.get('/api/sd/loras'), 
   status: () => client.get('/api/sd/status'),
 
   // SSE 기반 — EventSource URL 반환

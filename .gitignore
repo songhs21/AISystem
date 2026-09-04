@@ -20,6 +20,7 @@ worker.log
 # 모델
 assets/models/
 assets/model/
+assets/lora_triggers.json
 
 # 태그 및 워크플로우 (개인 파일)
 assets/tag/
