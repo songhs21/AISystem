@@ -5,6 +5,8 @@ import time
 import requests
 import psutil
 from config.PATH import COMFY_DIR, PYTHON_EMBEDED, COMFY_URL
+import queue
+_comfy_log_queue = queue.Queue()
 
 _comfy_process = None
 
@@ -18,8 +20,6 @@ def is_comfy_alive() -> bool:
 
 def start_comfy():
     global _comfy_process
-
-    # 이미 실행 중이면 다시 실행하지 않음
     if is_comfy_alive():
         return
 
@@ -28,14 +28,45 @@ def start_comfy():
     _comfy_process = subprocess.Popen(
         [PYTHON_EMBEDED, main_py],
         cwd=COMFY_DIR,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         creationflags=subprocess.CREATE_NO_WINDOW
     )
 
+    # stdout을 별도 스레드에서 읽어 큐에 적재
+    def _read_stdout():
+        for line in _comfy_process.stdout:
+            try:
+                _comfy_log_queue.put(line.decode('utf-8', errors='replace').rstrip())
+            except Exception:
+                break
+
+    import threading
+    threading.Thread(target=_read_stdout, daemon=True).start()
+
+def get_comfy_log_queue():
+    return _comfy_log_queue
+
 def kill_comfy():
     global _comfy_process
+    # 직접 띄운 프로세스 종료
     if _comfy_process:
         _comfy_process.kill()
         _comfy_process = None
+
+    # 포트 8188 점유 프로세스 강제 종료 (외부 실행된 경우 대비)
+    try:
+        import psutil
+        for proc in psutil.process_iter(['pid', 'connections']):
+            try:
+                for conn in proc.connections():
+                    if conn.laddr.port == 8188:
+                        proc.kill()
+                        break
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except Exception as e:
+        pass
 
 def wait_for_comfy(timeout: int = 60):
     start = time.time()

@@ -21,6 +21,7 @@ COMFY_INPUT         = COMFY_DIR/"input"
 PYTHON_EMBEDED      = COMFY_LOOT/"python_embeded"/"python.exe"
 CHECKPOINT_DIR      = COMFY_DIR/"models"/"checkpoints"
 LORA_DIR            = COMFY_DIR/"models"/"loras"
+LORA_TRIGGERS       = COMFY_DIR/"lora_triggers.json"
 UPSCALE_MODEL_DIR   = COMFY_DIR/"models"/"upscale_models"
 # Gradio
 GRADIO_START_LOG    = PROJECT_ROOT/"data"/"logs"/"gradio_start.txt"

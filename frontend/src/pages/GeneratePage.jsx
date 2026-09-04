@@ -106,7 +106,6 @@ export default function GeneratePage() {
   const [usedPrompt, setUsedPrompt] = useState('')
 
   // 드롭박스 모드 state
-  const [manualTags, setManualTags] = useState([])
   const [dropSelections, setDropSelections] = useState(() => {
     try {
       const saved = localStorage.getItem('dropSelections')
@@ -125,8 +124,13 @@ export default function GeneratePage() {
       return saved ? JSON.parse(saved) : {}
     } catch { return {} }
   }) // { 'cat.subKey': en }
-  const [dropSearch, setDropSearch] = useState({})           // { 'cat.subKey': string }
-  const [promptOrder, setPromptOrder] = useState([])
+  const [dropSearch, setDropSearch] = useState({})
+  const [promptOrder, setPromptOrder] = useState(() => {
+  try {
+    const saved = localStorage.getItem('promptOrder')
+    return saved ? JSON.parse(saved) : []
+  } catch { return [] }
+})
   const [isDraggingTag, setIsDraggingTag] = useState(false)
   const [globalNavIndex, setGlobalNavIndex] = useState(-1)
 
@@ -201,23 +205,33 @@ export default function GeneratePage() {
 
   // 프롬프트 dnd useEffect
   useEffect(() => {
-  setPromptOrder(prev => {
-    const current = []
-    for (const cat of CATEGORY_ORDER) {
-      for (const sub of (CATEGORY_CONFIG[cat] || [])) {
-        const subKey = `${cat}.${sub.key}`
-        for (const en of (dropSelections[subKey] || [])) {
-          current.push({ subKey, en })
+    setPromptOrder(prev => {
+      // dropSelections 기반 태그 목록
+      const current = []
+      for (const cat of CATEGORY_ORDER) {
+        for (const sub of (CATEGORY_CONFIG[cat] || [])) {
+          const subKey = `${cat}.${sub.key}`
+          for (const en of (dropSelections[subKey] || [])) {
+            current.push({ subKey, en, isManual: false })
+          }
         }
       }
-    }
-    const currentSet = new Set(current.map(t => `${t.subKey}::${t.en}`))
-    const prevFiltered = prev.filter(t => currentSet.has(`${t.subKey}::${t.en}`))
-    const prevSet = new Set(prevFiltered.map(t => `${t.subKey}::${t.en}`))
-    const newTags = current.filter(t => !prevSet.has(`${t.subKey}::${t.en}`))
-    return [...prevFiltered, ...newTags]
-  })
-}, [dropSelections])
+      const currentSet = new Set(current.map(t => `${t.subKey}::${t.en}`))
+
+      // 기존 promptOrder에서 isManual=false인 것 중 현재 selections에 없는 것 제거
+      // isManual=true인 것은 그대로 유지
+      const prevFiltered = prev.filter(t =>
+        t.isManual || currentSet.has(`${t.subKey}::${t.en}`)
+      )
+      const prevSet = new Set(prevFiltered.map(t =>
+        t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`
+      ))
+
+      // 새로 추가된 dropSelections 태그 append
+      const newTags = current.filter(t => !prevSet.has(`${t.subKey}::${t.en}`))
+      return [...prevFiltered, ...newTags]
+    })
+  }, [dropSelections])
 
   // 태그 리스트 변동 시 저장
   useEffect(() => {
@@ -231,6 +245,10 @@ export default function GeneratePage() {
   useEffect(() => {
     localStorage.setItem('dropRandomFixed', JSON.stringify(dropRandomFixed))
   }, [dropRandomFixed])
+
+  useEffect(() => {
+    localStorage.setItem('promptOrder', JSON.stringify(promptOrder))
+  }, [promptOrder])
 
   // ── 태그 JSON 로드 ──
   const { data: tagFileData = {} } = useQuery({
@@ -275,10 +293,8 @@ export default function GeneratePage() {
 
   // ── 미리보기 ──
   const dropPrompt = useMemo(() => {
-    const dropPart = promptOrder.map(t => t.en).join(', ')
-    const manualPart = manualTags.join(', ')
-    return [dropPart, manualPart].filter(Boolean).join(', ')
-  }, [promptOrder, manualTags])
+    return promptOrder.map(t => t.en).join(', ')
+  }, [promptOrder])
 
   const textFinalPrompt = useMemo(() => {
     const parts = []
@@ -458,7 +474,7 @@ export default function GeneratePage() {
     }
   }
 
-  const prompt = [...parts, ...manualTags].filter(Boolean).join(', ')
+  const prompt = promptOrder.map(t => t.en).filter(Boolean).join(', ')
   console.log('[Generate] mode:', mode, 'prompt:', prompt)
   console.log('[Generate] loraName:', loraName, 'loraStrength:', loraStrength)
   console.log('[Generate] run payload:', { prompt, negative, checkpoint, lora_name: loraName, lora_strength: loraStrength })
@@ -505,7 +521,7 @@ export default function GeneratePage() {
   }
 
   // 드래그 앤 드롭
-  function SortableTag({ id, label, onRemove, onClick }) {
+  function SortableTag({ id, label, subLabel, isManual, onRemove, onClick }) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
     return (
       <div ref={setNodeRef}
@@ -513,22 +529,30 @@ export default function GeneratePage() {
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.5 : 1,
-          display: 'inline-flex', alignItems: 'center', gap: 3,
-          background: 'var(--bg3)', border: '1px solid var(--accent)',
+          display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start',
+          background: 'var(--bg3)',
+          border: `1px solid ${isManual ? 'var(--success)' : 'var(--accent)'}`,
           borderRadius: 4, padding: '2px 6px', fontSize: 11,
           cursor: isDragging ? 'grabbing' : 'grab',
-          color: 'var(--accent)',
+          color: isManual ? 'var(--success)' : 'var(--accent)',
         }}
         {...attributes}
         {...listeners}
-        onClick={onClick}  // ← 클릭 시 제거
+        onClick={onClick}
       >
-        {label}
-        <button
-          onPointerDown={e => e.stopPropagation()}
-          onClick={e => { e.stopPropagation(); onRemove() }}
-          style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 11 }}
-        >×</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+          {subLabel && (
+            <span style={{ fontSize: 9, color: 'var(--text-dim)', marginRight: 2 }}>
+              [{subLabel}]
+            </span>
+          )}
+          {label}
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onRemove() }}
+            style={{ background: 'none', border: 'none', color: isManual ? 'var(--success)' : 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 11 }}
+          >×</button>
+        </div>
       </div>
     )
   }
@@ -597,7 +621,7 @@ export default function GeneratePage() {
             <input
               placeholder="🔍 전체 태그 검색..."
               value={globalSearch}
-              onChange={e => { setGlobalSearch(e.target.value.replace(/ /g, '_')); setGlobalSearchOpen(true); setGlobalNavIndex(-1) }}
+              onChange={e => { setGlobalSearch(e.target.value); setGlobalSearchOpen(true); setGlobalNavIndex(-1) }}
               onFocus={() => setGlobalSearchOpen(true)}
               onBlur={() => setTimeout(() => { setGlobalSearchOpen(false); setGlobalNavIndex(-1) }, 150)}
               onKeyDown={e => {
@@ -622,8 +646,17 @@ export default function GeneratePage() {
                       return { ...prev, [t.subKey]: [...cur, t.en] }
                     })
                   } else if (globalSearch.trim()) {
-                    setManualTags(prev => [...prev, globalSearch.trim()])
-                  }
+                    // 쉼표로 split해서 멀티 태그 추가
+                      const newTags = globalSearch.split(',')
+                        .map(t => t.trim().replace(/ /g, '_'))
+                        .filter(t => t && !promptOrder.some(p => p.isManual && p.en === t))
+                      if (newTags.length) {
+                        setPromptOrder(prev => [
+                          ...prev,
+                          ...newTags.map(en => ({ subKey: null, en, isManual: true }))
+                        ])
+                      }
+                    }
                   setGlobalSearch('')
                   setGlobalSearchOpen(false)
                   setGlobalNavIndex(-1)
@@ -700,82 +733,68 @@ export default function GeneratePage() {
                   setIsDraggingTag(false)
                   if (!over || active.id === over.id) return
                   setPromptOrder(prev => {
-                    const oldIdx = prev.findIndex(t => `${t.subKey}::${t.en}` === active.id)
-                    const newIdx = prev.findIndex(t => `${t.subKey}::${t.en}` === over.id)
+                    const getId = t => t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`
+                    const oldIdx = prev.findIndex(t => getId(t) === active.id)
+                    const newIdx = prev.findIndex(t => getId(t) === over.id)
                     return arrayMove(prev, oldIdx, newIdx)
                   })
                 }}
               >
                 <SortableContext
-                  items={promptOrder.map(t => `${t.subKey}::${t.en}`)}
+                  items={promptOrder.map(t => t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`)}
                   strategy={rectSortingStrategy}
                 >
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 80, }}>
-                    {promptOrder.length === 0
-                      ? <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>비어있음</span>
-                      : promptOrder.map(({ subKey, en }) => {
-                          // 랜덤 태그인지 체크
-                          const isRandom = dropRandom[subKey] && dropRandomFixed[subKey] === en
-                          // 한글 라벨 찾기
-                          const cat = subKey.split('.')[0]
-                          const fileData = tagFileData[cat] || {}
-                          const subConf = (CATEGORY_CONFIG[cat] || []).find(s => `${cat}.${s.key}` === subKey)
-                          const list = subConf ? getSubcategoryTags(fileData, subConf.key) : []
-                          const item = list.find(t => t.en === en)
-                          const label = item ? `${item.ko}(${en})` : en
+                    {promptOrder.map((t) => {
+                      const { subKey, en, isManual } = t
+                      const cat = subKey?.split('.')[0]
+                      const fileData = cat ? (tagFileData[cat] || {}) : {}
+                      const subConf = cat ? (CATEGORY_CONFIG[cat] || []).find(s => `${cat}.${s.key}` === subKey) : null
+                      const list = subConf ? getSubcategoryTags(fileData, subConf.key) : []
+                      const item = list.find(t => t.en === en)
+                      const label = item ? `${item.ko}(${en})` : en
+                      const subLabel = subConf?.label || null
+                      const isRandom = !isManual && dropRandom[subKey] && dropRandomFixed[subKey] === en
 
-                          return (
-                           <SortableTag
-                            key={`${subKey}::${en}`}
-                            id={`${subKey}::${en}`}
-                            label={label}
-                            onClick={() => {
-                              if (isRandom) {
-                                setDropRandom(prev => ({ ...prev, [subKey]: false }))
-                                setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
-                              } else {
-                                setDropSelections(prev => ({
-                                  ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
-                                }))
-                              }
-                            }}
-                            onRemove={() => {
-                              if (isRandom) {
-                                setDropRandom(prev => ({ ...prev, [subKey]: false }))
-                                setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
-                              } else {
-                                setDropSelections(prev => ({
-                                  ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
-                                }))
-                              }
-                            }}
-                          />
-                          )
-                        })
+                      return (
+                        <SortableTag
+                          key={isManual ? `manual::${en}` : `${subKey}::${en}`}
+                          id={isManual ? `manual::${en}` : `${subKey}::${en}`}
+                          label={label}
+                          subLabel={subLabel}
+                          isManual={isManual}
+                          onClick={() => {
+                            if (isManual) {
+                              setPromptOrder(prev => prev.filter(t => !(t.isManual && t.en === en)))
+                            } else if (isRandom) {
+                              setDropRandom(prev => ({ ...prev, [subKey]: false }))
+                              setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
+                            } else {
+                              setDropSelections(prev => ({
+                                ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
+                              }))
+                            }
+                          }}
+                          onRemove={() => {
+                            if (isManual) {
+                              setPromptOrder(prev => prev.filter(t => !(t.isManual && t.en === en)))
+                            } else if (isRandom) {
+                              setDropRandom(prev => ({ ...prev, [subKey]: false }))
+                              setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
+                            } else {
+                              setDropSelections(prev => ({
+                                ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
+                              }))
+                            }
+                          }}
+                        />
+                      )
+                    })
                     }
                   </div>
                 </SortableContext>
               </DndContext>
             )}
-            {/* 직접 입력 태그 */}
-            {manualTags.map((tag, i) => (
-            <div key={`manual-${i}`}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 3,
-                background: 'var(--bg3)', border: '1px solid var(--success)',
-                borderRadius: 4, padding: '2px 6px', fontSize: 11,
-                color: 'var(--success)',
-              }}
-            >
-              {tag}
-              <button
-                onPointerDown={e => e.stopPropagation()}
-                onClick={() => setManualTags(prev => prev.filter((_, idx) => idx !== i))}
-                style={{ background: 'none', border: 'none', color: 'var(--success)', cursor: 'pointer', padding: 0, fontSize: 11 }}
-              >×</button>
-              
-            </div>
-            ))}
           </div>
           
           {/* LoRA */}

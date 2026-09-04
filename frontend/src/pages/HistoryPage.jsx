@@ -350,7 +350,7 @@ export default function HistoryPage() {
 
                     <PromptTags prompt={gen.prompt} />
 
-                    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                       <FeedbackEditorPanel
                         gen={editTarget.gen}
                         feedback={editTarget.feedback}
@@ -453,7 +453,7 @@ function FeedbackEditorPanel({ gen, feedback, onSave }) {
       {passType !== '마음에 들지 않음' && (
         <>
           {/* 태그 목록 */}
-          <div style={{ flex: 1, overflow: 'hidden' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
             <TagPanel
               tags={gen.tags}
               liked={liked} disliked={disliked} passed={passed}

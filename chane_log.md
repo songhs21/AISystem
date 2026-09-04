@@ -353,3 +353,66 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 - 결정: 방향키/엔터 조건 분리. Fuse 인스턴스 useRef로 캐싱, 검색에 150ms 디바운스 적용
 - 이유: 검색 결과 없는 태그도 manualTags로 추가 가능해야 함. Fuse 인스턴스 재생성 비용 제거 + 디바운스로 타이핑 중 불필요한 순회 방지
 - 변경 파일: src/pages/GeneratePage.jsx
+
+
+## v1.2.4 UI 개선 및 버그 수정
+
+### 18. 부정 프롬프트 위치 개편 + 고급 옵션 토글
+- 변경: 우측 패널 제거, 부정 프롬프트를 최종 프롬프트 미리보기 아래로 이동, 1차/2차 카테고리 버튼을 고급 옵션 토글로 이동
+- 문제/배경: 우측 패널이 textarea 하나만 들고 18% 공간 차지, 카테고리 버튼이 항상 표시돼 헤더가 복잡함
+- 결정: 부정 프롬프트 고정 헤더 내 배치, 카테고리 버튼 고급 옵션 접기/펼치기로 이동
+- 이유: 중앙 스크롤 영역 확보, 평소엔 검색+미리보기+부정 프롬프트만 보여서 깔끔
+- 변경 파일: src/pages/GeneratePage.jsx
+
+### 19. tagConfig.js 분리
+- 변경: CATEGORY_ORDER, CATEGORY_CONFIG, 순수 유틸 함수들을 src/constants/tagConfig.js로 분리
+- 문제/배경: GeneratePage.jsx가 카테고리 설정으로 인해 과도하게 길어짐
+- 결정: export로 분리, GeneratePage.jsx에서 import
+- 이유: 파일 가독성 향상, 나중에 다른 페이지에서도 재사용 가능
+- 변경 파일: src/constants/tagConfig.js, src/pages/GeneratePage.jsx
+
+### 20. LoRA 트리거 워드 지원
+- 변경: lora_triggers.json 추가, apply_lora_patch에서 LoRA별 트리거 워드를 positive 프롬프트 앞에 자동 추가
+- 문제/배경: LoRA마다 활성화 트리거 워드가 다른데 매번 수동 입력 필요
+- 결정: JSON 파일로 LoRA명→트리거 워드 매핑 관리, positive_node_id 파라미터로 워크플로우별 대응
+- 이유: JSON만 편집하면 코드 수정 없이 트리거 워드 관리 가능
+- 변경 파일: assets/lora_triggers.json, config/PATH.py, core/image/generate.py
+
+### 21. manualTags + dropSelections 통합 순서 관리
+- 변경: manualTags 별도 state 제거, promptOrder에 isManual 필드 추가해 통합 관리. 쉼표 기반 멀티 태그 입력, localStorage 유지, 드래그 순서 통합
+- 문제/배경: manualTags가 별도 배열이라 드롭박스 태그와 순서 섞기 불가능. 새로고침 시 날아감
+- 결정: promptOrder = [{subKey, en, isManual}] 단일 구조로 통합. isManual=true는 초록색, false는 보라색으로 구분
+- 이유: dnd-kit으로 전체 순서 통합 관리, localStorage로 새로고침 후 복원
+- 대안: manualTags 유지하고 별도 dnd 컨텍스트 — 두 영역 간 드래그 불가로 기각
+- 변경 파일: src/pages/GeneratePage.jsx
+
+### 22. 최종 프롬프트 카테고리 표시
+- 변경: 프롬프트 칩 앞에 [서브카테고리] 표시 추가
+- 문제/배경: 복장 태그가 겹쳐서 생성이 안 될 때 어느 카테고리인지 파악하기 어려움
+- 결정: SortableTag에 subLabel prop 추가, 칩 앞에 [카테고리명] 항상 표시
+- 이유: 태그 카테고리 파악이 빨라져 프롬프트 정리 시간 단축
+- 변경 파일: src/pages/GeneratePage.jsx
+
+### 23. 전체 태그 검색 공백 처리 개선
+- 변경: onChange 공백→언더바 치환 제거, 엔터 입력 시 각 태그에 trim+언더바 치환 적용
+- 문제/배경: onChange에서 치환하면 쉼표 뒤 공백도 언더바로 변환돼 멀티 태그 입력 방해
+- 결정: 입력 중엔 공백 그대로 표시, 엔터로 확정할 때만 치환
+- 변경 파일: src/pages/GeneratePage.jsx
+
+### 24. ComfyUI 시작/종료 상태 표시
+- 변경: SD 토글 시 시작중/종료중 텍스트 + 프로그레스 바 표시, 시작 시 실제 로그 SSE 수신
+- 문제/배경: ComfyUI 켜고 끌 때 진행 상태를 알 수 없었음
+- 결정: 시작은 stdout 캡처 → SSE 스트림으로 실제 로그 표시, 종료는 폴링 기반 가짜 프로그레스
+- 이유: 시작 로그는 실제 진행 상황 반영 가능, 종료는 로그 없어서 폴링으로 대체
+- 변경 파일: core/system/comfy_manager.py, api/routers/system.py, src/components/SystemStatus.jsx
+
+### 25. ComfyUI kill 버그 수정
+- 변경: kill_comfy에 psutil 기반 포트 8188 프로세스 강제 종료 추가
+- 문제/배경: AISystem 외부에서 실행된 ComfyUI는 _comfy_process가 None이라 kill 스킵됨
+- 결정: psutil로 8188 포트 점유 프로세스 탐색 후 강제 종료
+- 변경 파일: core/system/comfy_manager.py
+
+### 26. 히스토리 피드백 오버레이 스크롤 수정
+- 변경: FeedbackEditorPanel 태그 목록 div overflow hidden → minHeight:0 추가로 스크롤 정상화
+- 문제/배경: TagPanel 영역에 스크롤이 안 됨
+- 변경 파일: src/pages/HistoryPage.jsx

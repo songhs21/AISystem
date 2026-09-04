@@ -1,6 +1,7 @@
 # api/routers/system.py
 import requests
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi.responses import Response
 import mimetypes
@@ -10,6 +11,7 @@ from core.system.comfy_manager import is_comfy_alive, start_comfy, kill_comfy, g
 from config.constants import NEGATIVE_BASE
 from pathlib import Path 
 from fastapi import UploadFile, File
+import json
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -199,3 +201,27 @@ async def upload_image(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, f)
 
     return {"path": save_path, "filename": file.filename}
+
+@router.get("/comfy/start-stream")
+def comfy_start_stream():
+    from core.system.comfy_manager import start_comfy, get_comfy_log_queue, is_comfy_alive
+    import queue as _queue
+
+    def stream():
+        start_comfy()
+        log_queue = get_comfy_log_queue()
+        yield f"event: log\ndata: {json.dumps({'text': 'ComfyUI 시작 중...'})}\n\n"
+
+        while True:
+            alive = is_comfy_alive()
+            try:
+                line = log_queue.get(timeout=1)
+                yield f"event: log\ndata: {json.dumps({'text': line})}\n\n"
+            except _queue.Empty:
+                pass
+
+            if alive:
+                yield f"event: done\ndata: {json.dumps({'text': 'ComfyUI 시작 완료'})}\n\n"
+                break
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
