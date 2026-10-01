@@ -33,6 +33,7 @@ docx/
 user_data/
 tools/
 scripts/
+config/notify.json
 
 # 기타
 mask_debug.png
@@ -41,3 +42,8 @@ AISystem_filetree.txt
 tree.txt
 package-lock.json
 package.json
+frontend/public
+01-test
+test_mask_backup.py
+test_v2v.py
+yolov8m.pt

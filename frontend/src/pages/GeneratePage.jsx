@@ -1,7 +1,7 @@
 // src/pages/GeneratePage.jsx
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { 
+import {
   client,
   sdApi,
   historyApi,
@@ -26,7 +26,6 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useCallback } from 'react'
 import { CATEGORY_CONFIG, CATEGORY_ORDER } from '../constants/tagConfig'
 
 // ─── 유틸 함수 ───────────────────────────────────────────────────
@@ -64,6 +63,14 @@ function flattenTagsToMap(obj, map = {}) {
   return map
 }
 
+function buildFuse(list) {
+  return new Fuse(list, {
+    keys: ['en', 'ko'],
+    threshold: 0.4,
+    distance: 100,
+    includeScore: true,
+  })
+}
 
 // ─── PromptTags ──────────────────────────────────────────────────
 function PromptTags({ prompt }) {
@@ -80,103 +87,35 @@ function PromptTags({ prompt }) {
   )
 }
 
-// ── 퍼지 검색 유틸 ──────────────────
-function buildFuse(list) {
-  return new Fuse(list, {
-    keys: ['en', 'ko'],
-    threshold: 0.4,      // 0.0 완전일치 ~ 1.0 전부매칭, 0.4가 실용적
-    distance: 100,
-    includeScore: true,
-  })
-}
-
 // ─── 메인 컴포넌트 ───────────────────────────────────────────────
 export default function GeneratePage() {
   const [mode, setMode] = useState('dropdown')
   const [checkpoint, setCheckpoint] = useState('')
-  const [negative, setNegative] = useState('')
   const [result, setResult] = useState(null)
+  const [meta, setMeta] = useState(null)
+  const [i2iOverlay, setI2iOverlay] = useState(null)
+  const [showHistoryPicker, setShowHistoryPicker] = useState(false)
+  const [historyPickerTarget, setHistoryPickerTarget] = useState(null)
+  const [leftDrawerOpen, setLeftDrawerOpen] = useState(true)
+  const [tagPanelOpen, setTagPanelOpen] = useState(false)
+
+  const { progress, statusText, running, error, run } = useSSE()
+
+  const [jobRunning, setJobRunning]   = useState(false)
+  const [jobProgress, setJobProgress] = useState(0)
+  const [jobStatus, setJobStatus]     = useState('')
+  const [jobError, setJobError]       = useState(null)
+  const jobAbortRef = useRef(null)
+
+  // 태그 패널 전용 state (드롭박스 결과에만 사용)
+  const [tags, setTags] = useState([])
+  const [usedPrompt, setUsedPrompt] = useState('')
   const [passType, setPassType] = useState('문제 없음')
   const [likedTags, setLikedTags] = useState(new Set())
   const [dislikedTags, setDislikedTags] = useState(new Set())
   const [falseTags, setFalseTags] = useState(new Set())
   const [score, setScore] = useState(5)
-  const [tags, setTags] = useState([])
-  const [tagPanelOpen, setTagPanelOpen] = useState(true)
-  const [usedPrompt, setUsedPrompt] = useState('')
 
-  // 드롭박스 모드 state
-  const [dropSelections, setDropSelections] = useState(() => {
-    try {
-      const saved = localStorage.getItem('dropSelections')
-      return saved ? JSON.parse(saved) : {}
-    } catch { return {} }
-  })  // { 'cat.subKey': [en, ...] }
-  const [dropRandom, setDropRandom] = useState(() => {
-    try {
-      const saved = localStorage.getItem('dropRandom')
-      return saved ? JSON.parse(saved) : {}
-    } catch { return {} }
-  })          // { 'cat.subKey': bool }
-  const [dropRandomFixed, setDropRandomFixed] = useState(() => {
-    try {
-      const saved = localStorage.getItem('dropRandomFixed')
-      return saved ? JSON.parse(saved) : {}
-    } catch { return {} }
-  }) // { 'cat.subKey': en }
-  const [dropSearch, setDropSearch] = useState({})
-  const [promptOrder, setPromptOrder] = useState(() => {
-  try {
-    const saved = localStorage.getItem('promptOrder')
-    return saved ? JSON.parse(saved) : []
-  } catch { return [] }
-})
-  const [isDraggingTag, setIsDraggingTag] = useState(false)
-  const [globalNavIndex, setGlobalNavIndex] = useState(-1)
-
-  // 텍스트 모드 state
-  const [textPrompt, setTextPrompt] = useState('')
-  const [textRandom, setTextRandom] = useState({})           // { cat: bool }
-  const [textRandomFixed, setTextRandomFixed] = useState({}) // { cat: en }
-  const [globalSearch, setGlobalSearch] = useState('')
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
-  const [openSubs, setOpenSubs] = useState(new Set())
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  // i2i 모드 state
-  const [i2iBaseImage, setI2iBaseImage] = useState(null)   // { path, filename, src }
-  const [i2iMaskImage, setI2iMaskImage] = useState(null)
-  const [i2iRefImage, setI2iRefImage]   = useState(null)
-  const [i2iPrompt, setI2iPrompt]       = useState('')
-  const [i2iNegative, setI2iNegative]   = useState('')
-  const [i2iDenoise, setI2iDenoise]     = useState(0.7)
-  const [i2iSeed, setI2iSeed]           = useState(-1)
-  const [showHistoryPicker, setShowHistoryPicker] = useState(false) // 히스토리 이미지 피커
-  const [i2iOverlay, setI2iOverlay]     = useState(null)  // 오버레이로 볼 이미지 src
-  // i2i mask
-  const [showMaskDraw, setShowMaskDraw]   = useState(false)
-  const [i2iMaskBlob, setI2iMaskBlob]     = useState(null)  // 완료된 마스크 blob
-  const [i2iMaskSrc, setI2iMaskSrc]       = useState(null)  // 썸네일용 src
-  // LoRA
-  const [loraName, setLoraName]         = useState('')
-  const [loraStrength, setLoraStrength] = useState(0.8)
-
-  // 프로그레스
-  const { progress, statusText, running, error, run } = useSSE()
-
-  // 최종 프롬프트 state
-  const [selectedNav, setSelectedNav] = useState(null)
-  const catRefs = useRef({})
-  const subRefs = useRef({})
-
-  // 검색 및 fuse
-  const fuseRef = useRef(null)
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-
-  const sensors = useSensors(useSensor(PointerSensor, {
-    activationConstraint: { distance: 5 }  // 드래그 최소 임계점 (px)
-  }))
-
-  // ── 체크포인트 ──
   const { data: cpData } = useQuery({
     queryKey: ['checkpoints'],
     queryFn: () => sdApi.checkpoints().then(r => r.data),
@@ -186,71 +125,6 @@ export default function GeneratePage() {
     if (checkpoints.length && !checkpoint) setCheckpoint(checkpoints[1])
   }, [checkpoints])
 
-  //LoRA
-  const { data: loraData } = useQuery({
-    queryKey: ['loras'],
-    queryFn: () => sdApi.loras().then(r => r.data),
-  })
-  const loras = loraData?.loras || []
-
-  // ── 네거티브 초기값 ──
-  const { data: constants } = useQuery({
-    queryKey: ['constants'],
-    queryFn: () => client.get('/api/system/constants').then(r => r.data),
-  })
-
-  useEffect(() => {
-    if (constants?.negative_base && !negative) setNegative(constants.negative_base)
-  }, [constants])
-
-  // 프롬프트 dnd useEffect
-  useEffect(() => {
-    setPromptOrder(prev => {
-      // dropSelections 기반 태그 목록
-      const current = []
-      for (const cat of CATEGORY_ORDER) {
-        for (const sub of (CATEGORY_CONFIG[cat] || [])) {
-          const subKey = `${cat}.${sub.key}`
-          for (const en of (dropSelections[subKey] || [])) {
-            current.push({ subKey, en, isManual: false })
-          }
-        }
-      }
-      const currentSet = new Set(current.map(t => `${t.subKey}::${t.en}`))
-
-      // 기존 promptOrder에서 isManual=false인 것 중 현재 selections에 없는 것 제거
-      // isManual=true인 것은 그대로 유지
-      const prevFiltered = prev.filter(t =>
-        t.isManual || currentSet.has(`${t.subKey}::${t.en}`)
-      )
-      const prevSet = new Set(prevFiltered.map(t =>
-        t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`
-      ))
-
-      // 새로 추가된 dropSelections 태그 append
-      const newTags = current.filter(t => !prevSet.has(`${t.subKey}::${t.en}`))
-      return [...prevFiltered, ...newTags]
-    })
-  }, [dropSelections])
-
-  // 태그 리스트 변동 시 저장
-  useEffect(() => {
-    localStorage.setItem('dropSelections', JSON.stringify(dropSelections))
-  }, [dropSelections])
-
-  useEffect(() => {
-    localStorage.setItem('dropRandom', JSON.stringify(dropRandom))
-  }, [dropRandom])
-
-  useEffect(() => {
-    localStorage.setItem('dropRandomFixed', JSON.stringify(dropRandomFixed))
-  }, [dropRandomFixed])
-
-  useEffect(() => {
-    localStorage.setItem('promptOrder', JSON.stringify(promptOrder))
-  }, [promptOrder])
-
-  // ── 태그 JSON 로드 ──
   const { data: tagFileData = {} } = useQuery({
     queryKey: ['tag-file-data'],
     queryFn: async () => {
@@ -260,7 +134,6 @@ export default function GeneratePage() {
           try {
             const filename = cat === 'Attire' ? 'Attire.json' : `${cat}.json`
             const res = await client.get(`/api/system/tags/${filename}`)
-            // 최상위 키 벗기지 않고 그대로 저장 (경로는 config key에 포함)
             results[cat] = res.data
           } catch { results[cat] = {} }
         })
@@ -270,232 +143,103 @@ export default function GeneratePage() {
     staleTime: Infinity,
   })
 
-  // 텍스트 모드 랜덤용 플랫 리스트
-  const tagData = useMemo(() => {
-    const r = {}
-    for (const cat of CATEGORY_ORDER) r[cat] = flattenTags(tagFileData[cat] || {})
-    return r
-  }, [tagFileData])
-
-  // 번역 맵 { en: ko }
   const koMap = useMemo(() => {
     const map = {}
     for (const cat of CATEGORY_ORDER) flattenTagsToMap(tagFileData[cat] || {}, map)
     return map
   }, [tagFileData])
 
-  // 전체 가중치 로드 (staleTime: Infinity)
-  const { data: allWeights = {} } = useQuery({
+  const allWeights = useQuery({
     queryKey: ['all-tag-weights'],
     queryFn: () => historyApi.allTagWeights().then(r => r.data),
     staleTime: Infinity,
-  })
+  }).data || {}
 
-  // ── 미리보기 ──
-  const dropPrompt = useMemo(() => {
-    return promptOrder.map(t => t.en).join(', ')
-  }, [promptOrder])
+  async function attachJob(jobId) {
+    if (jobAbortRef.current) jobAbortRef.current.abort()
+    const controller = new AbortController()
+    jobAbortRef.current = controller
 
-  const textFinalPrompt = useMemo(() => {
-    const parts = []
-    if (textPrompt.trim()) parts.push(textPrompt.trim())
-    for (const cat of CATEGORY_ORDER) {
-      if (textRandom[cat]) {
-        const fixed = textRandomFixed[cat]
-        if (fixed) parts.push(fixed)
-      }
-    }
-    return parts.join(', ')
-  }, [textPrompt, textRandom, textRandomFixed])
+    setJobRunning(true)
+    setJobProgress(0)
+    setJobStatus('')
+    setJobError(null)
 
-  const finalPrompt = mode === 'dropdown' ? dropPrompt : textFinalPrompt
-
-  // ── 전체 태그 플랫 리스트 (useMemo, koMap 선언 다음) ──
-  const allTagsFlat = useMemo(() => {
-    const result = []
-    for (const cat of CATEGORY_ORDER) {
-      for (const sub of (CATEGORY_CONFIG[cat] || [])) {
-        const subKey = `${cat}.${sub.key}`
-        const fileData = tagFileData[cat] || {}
-        const list = getSubcategoryTags(fileData, sub.key)
-        for (const t of list) {
-          result.push({ ...t, cat, subKey, subLabel: sub.label })
-        }
-      }
-    }
-    return result
-  }, [tagFileData])
-
-  // ── 전체 검색 결과 ──
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(globalSearch), 150)
-    return () => clearTimeout(timer)
-  }, [globalSearch])
-
-  const globalResults = useMemo(() => {
-    if (!debouncedSearch.trim()) return []
-    if (!fuseRef.current) return []
-    return fuseRef.current.search(debouncedSearch).map(r => r.item).slice(0, 30)
-  }, [debouncedSearch])
-
-
-  // img 1600px 체크 함수
-  function checkImageSize(file) {
-    return new Promise((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => {
-        URL.revokeObjectURL(img.src)
-        if (img.naturalWidth > 1600 || img.naturalHeight > 1600) {
-          reject(new Error(`이미지 크기 초과: ${img.naturalWidth}×${img.naturalHeight} (최대 1600px)`))
-        } else {
-          resolve({ width: img.naturalWidth, height: img.naturalHeight })
-        }
-      }
-      img.src = URL.createObjectURL(file)
-    })
-  }
-  
-  // fuse 캐싱
-  useEffect(() => {
-    fuseRef.current = new Fuse(allTagsFlat, {
-      keys: ['en', 'ko'],
-      threshold: 0.4,
-      distance: 100,
-      includeScore: true,
-    })
-  }, [allTagsFlat])
-
-
-
-  async function handleI2iUpload(e, setSlot) {
-    const file = e.target.files?.[0]
-    if (!file) return
     try {
-      await checkImageSize(file)
-      // 서버 업로드
-      const res = await systemApi.uploadImage(file)
-      const { path } = res.data
-      const src = URL.createObjectURL(file)
-      setSlot({ file, filename: file.name, src, path, fromHistory: true })
-    } catch (err) {
-      alert(err.message)
-    }
-  }
+      const res = await fetch(sdApi.jobStreamUrl(jobId), { signal: controller.signal })
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let eventType = null
 
-  function handleHistoryPick(gen) {
-    // 업스케일 이미지면 원본 선택
-    const isUpscaled = gen.upscaled_image &&
-      gen.image_path.replace(/[^/\\]*$/, '') + gen.upscaled_image === gen.image_path
-    const path = gen.image_path
-    const src = `${API_BASE}/api/system/image?path=${encodeURIComponent(path)}`
-    setI2iBaseImage({ file: null, filename: path.split(/[/\\]/).pop(), src, path, fromHistory: true })
-    setShowHistoryPicker(false)
-  }
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
 
-  // ── 생성 ──
-  async function generate() {
-    setResult(null)
-    setTags([])
-    setLikedTags(new Set())
-    setDislikedTags(new Set())
-    setFalseTags(new Set())
-
-    if (mode === 'i2i') {
-      if (!i2iBaseImage) { alert('베이스 이미지를 선택해주세요'); return }
-
-      // 히스토리 이미지면 path 직접 사용, 업로드면 서버로 전송 필요
-      let imagePath = i2iBaseImage.path || ''
-
-      if (!i2iBaseImage.fromHistory) {
-        // 파일 업로드 → /api/system/upload 로 전송 (추후 엔드포인트 추가 필요)
-        // 임시: COMFY_INPUT에 저장하는 엔드포인트 필요
-        alert('파일 업로드 엔드포인트 미구현 — 히스토리 이미지를 사용해주세요')
-        return
-      }
-
-      if (i2iMaskBlob) {
-        // 마스크 있으면 i2i-mask 엔드포인트
-        const form = new FormData()
-        form.append('image_path', imagePath)
-        form.append('checkpoint', checkpoint)
-        form.append('prompt', i2iPrompt)
-        form.append('negative', i2iNegative || negative)
-        form.append('denoise', i2iDenoise)
-        form.append('seed', i2iSeed)
-        form.append('mask_file', i2iMaskBlob, 'mask.png')
-        form.append('lora_name', loraName)
-        form.append('lora_strength', loraStrength)
-
-        await run(
-        sdApi.i2iMaskUrl(),
-        form,
-        {
-          onDone: async (data) => {
-            setResult(data)
-            try {
-              const gen = await historyApi.generation(data.gen_id)
-              setUsedPrompt(gen.data.prompt || '')
-              setTags(gen.data.tags || [])
-            } catch(e) { console.error('태그 조회 실패:', e) }
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6))
+            if (eventType === 'progress') {
+              setJobProgress(data.value)
+              setJobStatus(data.text)
+            } else if (eventType === 'done') {
+              setJobProgress(1)
+              setJobStatus('완료!')
+              setResult({ ...data, isVideo: true })
+            } else if (eventType === 'error') {
+              setJobError(data.message)
+            }
+            eventType = null
           }
         }
-      )
-      } else {
-        // 마스크 없으면 기존 i2i
-        await run(
-          sdApi.i2iUrl(),
-          {
-            image_path: imagePath,
-            checkpoint,
-            prompt: i2iPrompt,
-            negative: i2iNegative || negative,
-            denoise: i2iDenoise,
-            seed: i2iSeed,
-            lora_name: loraName,
-            lora_strength: loraStrength,
-          },
-          { onDone: async (data) => { setResult(data) } }
-        )
       }
-      return
-    }
-
-  // 기존 드롭박스 모드 생성
-  const parts = []
-  for (const cat of CATEGORY_ORDER) {
-    for (const sub of (CATEGORY_CONFIG[cat] || [])) {
-      const subKey = `${cat}.${sub.key}`
-      if (dropRandom[subKey]) {
-        const fixed = dropRandomFixed[subKey]
-        if (fixed) parts.push(fixed)
-      } else {
-        parts.push(...(dropSelections[subKey] || []))
-      }
+    } catch (e) {
+      if (e.name !== 'AbortError') setJobError(e.message)
+    } finally {
+      setJobRunning(false)
     }
   }
 
-  const prompt = promptOrder.map(t => t.en).filter(Boolean).join(', ')
-  console.log('[Generate] mode:', mode, 'prompt:', prompt)
-  console.log('[Generate] loraName:', loraName, 'loraStrength:', loraStrength)
-  console.log('[Generate] run payload:', { prompt, negative, checkpoint, lora_name: loraName, lora_strength: loraStrength })
+  async function startI2v(payload, metaInfo) {
+    setResult(null)
+    setMeta(metaInfo)
+    try {
+      const res = await client.post('/api/sd/i2v', payload)
+      await attachJob(res.data.job_id)
+    } catch (e) {
+      setJobError(e.response?.data?.detail || e.message)
+    }
+  }
 
-  await run(
-    sdApi.generateUrl(),
-    { prompt, negative, checkpoint, lora_name: loraName, lora_strength: loraStrength },
-    {
-      onDone: async (data) => {
-        setResult(data)
-        try {
-          const gen = await historyApi.generation(data.gen_id)
-          setUsedPrompt(gen.data.prompt || '')
-          setTags(gen.data.tags || [])
-        } catch(e) { console.error('태그 조회 실패:', e) }
+  useEffect(() => {
+    let cancelled = false
+    async function reattach() {
+      try {
+        const res = await sdApi.activeJobs('i2v')
+        const list = res.data.jobs || []
+        const target = list.find(j => j.status === 'running')
+        if (target && !cancelled) {
+          setMode('video')
+          attachJob(target.id)
+        }
+      } catch (e) {
+        console.error('작업 재연결 조회 실패:', e)
       }
     }
-  )
-}
+    reattach()
+    return () => { cancelled = true; jobAbortRef.current?.abort() }
+  }, [])
 
-  // ── 피드백 저장 ──
+  function openHistoryPicker(onPickCallback) {
+    setHistoryPickerTarget(() => onPickCallback)
+    setShowHistoryPicker(true)
+  }
+
   async function saveFeedback() {
     if (!result) return
     await historyApi.saveFeedback({
@@ -509,725 +253,231 @@ export default function GeneratePage() {
     })
     setResult(null)
     setTags([])
+    setTagPanelOpen(false)
   }
 
-  // 서브 카테고리 열고 닫기
-  function toggleSub(subKey) {
-    setOpenSubs(prev => {
-      const s = new Set(prev)
-      s.has(subKey) ? s.delete(subKey) : s.add(subKey)
-      return s
-    })
-  }
+  const isVideo = result?.isVideo
+  const displayRunning = running || jobRunning
+  const hasTags = tags.length > 0
 
-  // 드래그 앤 드롭
-  function SortableTag({ id, label, subLabel, isManual, onRemove, onClick }) {
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
-    return (
-      <div ref={setNodeRef}
-        style={{
-          transform: CSS.Transform.toString(transform),
-          transition,
-          opacity: isDragging ? 0.5 : 1,
-          display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start',
-          background: 'var(--bg3)',
-          border: `1px solid ${isManual ? 'var(--success)' : 'var(--accent)'}`,
-          borderRadius: 4, padding: '2px 6px', fontSize: 11,
-          cursor: isDragging ? 'grabbing' : 'grab',
-          color: isManual ? 'var(--success)' : 'var(--accent)',
-        }}
-        {...attributes}
-        {...listeners}
-        onClick={onClick}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          {subLabel && (
-            <span style={{ fontSize: 9, color: 'var(--text-dim)', marginRight: 2 }}>
-              [{subLabel}]
-            </span>
-          )}
-          {label}
-          <button
-            onPointerDown={e => e.stopPropagation()}
-            onClick={e => { e.stopPropagation(); onRemove() }}
-            style={{ background: 'none', border: 'none', color: isManual ? 'var(--success)' : 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 11 }}
-          >×</button>
-        </div>
-      </div>
-    )
-  }
-
-  
-  // ── JSX ──
   return (
-    <div style={{ display: 'flex', width: '100%', height: '100%', flex: 1, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', overflow: 'hidden' }}>
 
-      {/* 좌: 이미지 뷰어 + 생성 버튼 */}
-      <div style={{ width: '28%', minWidth: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 10, borderRight: '1px solid var(--border)' }}>
+      {/* 뷰포트 + 서랍 영역 */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', paddingTop: 10 }}>
 
-        {/* 체크포인트 */}
-        <div>
-          <label>체크포인트</label>
-          <select value={checkpoint} onChange={e => setCheckpoint(e.target.value)}>
-            {checkpoints.map(c => <option key={c}>{c}</option>)}
-          </select>
-        </div>
-
-        {/* 이미지 뷰어 */}
-        <div style={{ flex: 1, overflow: 'hidden', borderRadius: 8, background: 'var(--bg2)', border: '1px solid var(--border)' }}>
-          {result
-            ? <ImageViewer src={`${API_BASE}/api/system/image?path=${encodeURIComponent(result.image_path)}`} />
-            : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)', fontSize: 12 }}>
-                생성된 이미지가 여기에 표시됩니다
+        {/* 뷰포트 (오른쪽 태그 패널 열리면 밀림) */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          right: tagPanelOpen ? '35%' : 0,
+          minWidth: tagPanelOpen ? 'calc(65% - 0px)' : 'auto',
+          transition: 'right 0.2s ease',
+          display: 'flex', flexDirection: 'column', padding: 16, gap: 10,
+        }}>
+          <div style={{ flex: 1, overflow: 'auto', borderRadius: 8, background: 'var(--bg2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {result ? (
+              isVideo
+                ? <video src={`${API_BASE}/api/system/video?path=${encodeURIComponent(result.video_path)}`}
+                    controls autoPlay loop
+                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                : <ImageViewer src={`${API_BASE}/api/system/image?path=${encodeURIComponent(result.image_path)}`} />
+            ) : (
+              <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>
+                생성된 결과가 여기에 표시됩니다
               </div>
-          }
+            )}
+          </div>
+
+          {(displayRunning || progress > 0 || jobProgress > 0) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+              <div className="progress-bar">
+                <div className="progress-bar-fill" style={{ width: `${(jobRunning || jobProgress > 0 ? jobProgress : progress) * 100}%` }} />
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                {jobRunning || jobProgress > 0 ? jobStatus : statusText}
+              </span>
+            </div>
+          )}
+          {(error || jobError) && <div style={{ color: 'var(--danger)', fontSize: 12, flexShrink: 0 }}>{error || jobError}</div>}
+
+          {meta && (
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, fontSize: 11, color: 'var(--text-dim)', flexShrink: 0, maxHeight: 100, overflow: 'auto' }}>
+              {Object.entries(meta).map(([k, v]) => (
+                v !== undefined && v !== '' && (
+                  <span key={k} style={{ marginRight: 12 }}>
+                    <span style={{ color: 'var(--text)' }}>{k}</span>: {String(v)}
+                  </span>
+                )
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* 진행바 */}
-        {(running || progress > 0) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div className="progress-bar">
-              <div className="progress-bar-fill" style={{ width: `${progress * 100}%` }} />
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{statusText}</span>
-          </div>
-        )}
-        {error && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</div>}
-
-        <button className="btn btn-primary" onClick={generate} disabled={running || !checkpoint}>
-          {running ? '생성 중...' : '이미지 생성'}
+        {/* 왼쪽 서랍 토글 버튼 (파일탭 형태) */}
+        <button
+          onClick={() => setLeftDrawerOpen(v => !v)}
+          style={{
+            position: 'absolute', top: 0,
+            left: leftDrawerOpen ? 380 : 0,
+            zIndex: 60,
+            width: 60, height: 60,
+            border: '1px solid var(--border)', borderTop: 'none', borderLeft: leftDrawerOpen ? 'none' : undefined,
+            borderRadius: '0 0 12px 0',
+            background: 'var(--bg2)', color: 'var(--text-dim)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16, cursor: 'pointer',
+            transition: 'left 0.2s ease',
+          }}
+        >
+          {leftDrawerOpen ? '◀' : '▶'}
         </button>
-      </div>
 
-      {/* 중: 긍정 프롬프트 입력 (스크롤) */}
-      <div style={{ flex: 1, width: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 10, overflow: 'hidden' }}>
-
-        {/* 고정 헤더 */}
-        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
-
+        {/* 왼쪽 서랍 (오버레이, 뷰포트 안 밀림) */}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, bottom: 0, zIndex: 50,
+          width: 380, maxWidth: '90vw',
+          background: 'var(--bg2)', borderRight: '1px solid var(--border)',
+          boxShadow: '4px 0 16px rgba(0,0,0,0.3)',
+          display: leftDrawerOpen ? 'flex' : 'none',
+          flexDirection: 'column',
+          paddingTop: 16,
+        }}>
           {/* 모드 전환 */}
-          <div style={{ display: 'flex', gap: 4 }}>
-            {['dropdown', 'i2i'].map(m => (
+          <div style={{ display: 'flex', gap: 4, padding: '0 12px 10px' }}>
+            {['dropdown', 'i2i', 'video'].map(m => (
               <button key={m} className="btn btn-ghost"
                 style={{ fontSize: 11, padding: '4px 10px', ...(mode === m ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
                 onClick={() => setMode(m)}>
-                {m === 'dropdown' ? '🔽 드롭박스' : '🖼️ i2i'}
+                {m === 'dropdown' ? '🔽' : m === 'i2i' ? '🖼️' : '🎬'}
               </button>
             ))}
           </div>
-          
-          {/* 전체 태그 검색 */}
-          <div style={{ position: 'relative' }}>
-            <input
-              placeholder="🔍 전체 태그 검색..."
-              value={globalSearch}
-              onChange={e => { setGlobalSearch(e.target.value); setGlobalSearchOpen(true); setGlobalNavIndex(-1) }}
-              onFocus={() => setGlobalSearchOpen(true)}
-              onBlur={() => setTimeout(() => { setGlobalSearchOpen(false); setGlobalNavIndex(-1) }, 150)}
-              onKeyDown={e => {
-                if (e.key === 'ArrowDown') {
-                  if (!globalSearchOpen || globalResults.length === 0) return
-                  e.preventDefault()
-                  setGlobalNavIndex(prev => Math.min(prev + 1, globalResults.length - 1))
-                } else if (e.key === 'ArrowUp') {
-                  if (!globalSearchOpen || globalResults.length === 0) return
-                  e.preventDefault()
-                  setGlobalNavIndex(prev => Math.max(prev - 1, 0))
-                } else if (e.key === 'Enter') {
-                  e.preventDefault()
-                  if (globalNavIndex >= 0 && globalResults[globalNavIndex]) {
-                    const t = globalResults[globalNavIndex]
-                    const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
-                    const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
-                    setDropSelections(prev => {
-                      const cur = prev[t.subKey] || []
-                      if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
-                      if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
-                      return { ...prev, [t.subKey]: [...cur, t.en] }
-                    })
-                  } else if (globalSearch.trim()) {
-                    // 쉼표로 split해서 멀티 태그 추가
-                      const newTags = globalSearch.split(',')
-                        .map(t => t.trim().replace(/ /g, '_'))
-                        .filter(t => t && !promptOrder.some(p => p.isManual && p.en === t))
-                      if (newTags.length) {
-                        setPromptOrder(prev => [
-                          ...prev,
-                          ...newTags.map(en => ({ subKey: null, en, isManual: true }))
-                        ])
-                      }
-                    }
-                  setGlobalSearch('')
-                  setGlobalSearchOpen(false)
-                  setGlobalNavIndex(-1)
-                }
-              }}
-              style={{ fontSize: 12 }}
-            />
-            {globalSearchOpen && globalResults.length > 0 && (
-              <div style={{
-                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
-                background: 'var(--bg2)', border: '1px solid var(--border)',
-                borderRadius: 6, marginTop: 2,
-                maxHeight: 280, overflowY: 'auto',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-              }}>
-                {globalResults.map((t, i) => {
-                  const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
-                  const isNavActive = i === globalNavIndex
-                  return (
-                    <div key={`${t.subKey}-${t.en}-${i}`}
-                      onMouseDown={() => {
-                        const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
-                        setDropSelections(prev => {
-                          const cur = prev[t.subKey] || []
-                          if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
-                          if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
-                          return { ...prev, [t.subKey]: [...cur, t.en] }
-                        })
-                        setGlobalSearch('')
-                        setGlobalSearchOpen(false)
-                        setGlobalNavIndex(-1)
-                      }}
-                      onMouseEnter={() => setGlobalNavIndex(i)}
-                      onMouseLeave={() => setGlobalNavIndex(-1)}
-                      style={{
-                        padding: '6px 10px', cursor: 'pointer', fontSize: 11,
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        background: isNavActive ? 'var(--accent)' : isSelected ? 'var(--bg3)' : 'transparent',
-                        borderBottom: '1px solid var(--border)',
-                      }}
-                    >
-                      <span style={{ color: isNavActive ? '#fff' : 'var(--accent)', fontSize: 10, minWidth: 80 }}>
-                        {t.cat} / {t.subLabel}
-                      </span>
-                      <span style={{ color: isNavActive ? '#fff' : isSelected ? 'var(--accent)' : 'var(--text)' }}>
-                        {t.ko ? `${t.ko} (${t.en})` : t.en}
-                      </span>
-                      {isSelected && <span style={{ marginLeft: 'auto', color: isNavActive ? '#fff' : 'var(--accent)', fontSize: 10 }}>✓</span>}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-          
 
-          {/* 최종 프롬프트 미리보기 */}
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>최종 프롬프트 미리보기</span>
-              <button className="btn btn-ghost"
-                style={{ fontSize: 11, padding: '2px 8px' }}
-                onClick={() => navigator.clipboard.writeText(promptOrder.map(t => t.en).join(', '))}>
-                📋 복사
-              </button>
-            </div>
-            {/* 최종 프롬프트 미리보기 — 드롭박스 모드 */}
-            {mode === 'dropdown' && (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={() => setIsDraggingTag(true)}
-                onDragEnd={({ active, over }) => {
-                  setIsDraggingTag(false)
-                  if (!over || active.id === over.id) return
-                  setPromptOrder(prev => {
-                    const getId = t => t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`
-                    const oldIdx = prev.findIndex(t => getId(t) === active.id)
-                    const newIdx = prev.findIndex(t => getId(t) === over.id)
-                    return arrayMove(prev, oldIdx, newIdx)
-                  })
-                }}
-              >
-                <SortableContext
-                  items={promptOrder.map(t => t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`)}
-                  strategy={rectSortingStrategy}
-                >
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 80, }}>
-                    {promptOrder.map((t) => {
-                      const { subKey, en, isManual } = t
-                      const cat = subKey?.split('.')[0]
-                      const fileData = cat ? (tagFileData[cat] || {}) : {}
-                      const subConf = cat ? (CATEGORY_CONFIG[cat] || []).find(s => `${cat}.${s.key}` === subKey) : null
-                      const list = subConf ? getSubcategoryTags(fileData, subConf.key) : []
-                      const item = list.find(t => t.en === en)
-                      const label = item ? `${item.ko}(${en})` : en
-                      const subLabel = subConf?.label || null
-                      const isRandom = !isManual && dropRandom[subKey] && dropRandomFixed[subKey] === en
-
-                      return (
-                        <SortableTag
-                          key={isManual ? `manual::${en}` : `${subKey}::${en}`}
-                          id={isManual ? `manual::${en}` : `${subKey}::${en}`}
-                          label={label}
-                          subLabel={subLabel}
-                          isManual={isManual}
-                          onClick={() => {
-                            if (isManual) {
-                              setPromptOrder(prev => prev.filter(t => !(t.isManual && t.en === en)))
-                            } else if (isRandom) {
-                              setDropRandom(prev => ({ ...prev, [subKey]: false }))
-                              setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
-                            } else {
-                              setDropSelections(prev => ({
-                                ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
-                              }))
-                            }
-                          }}
-                          onRemove={() => {
-                            if (isManual) {
-                              setPromptOrder(prev => prev.filter(t => !(t.isManual && t.en === en)))
-                            } else if (isRandom) {
-                              setDropRandom(prev => ({ ...prev, [subKey]: false }))
-                              setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
-                            } else {
-                              setDropSelections(prev => ({
-                                ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
-                              }))
-                            }
-                          }}
-                        />
-                      )
-                    })
-                    }
-                  </div>
-                </SortableContext>
-              </DndContext>
-            )}
-          </div>
-          
-          {/* LoRA */}
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>🎨 LoRA</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <select
-                value={loraName}
-                onChange={e => {
-                  console.log('[LoRA] selected:', e.target.value)
-                  setLoraName(e.target.value)}}
-                style={{ fontSize: 12 }}
-              >
-                <option value="">LoRA 없음</option>
-                {loras.map(l => <option key={l} value={l}>{l}</option>)}
+          {mode !== 'video' && (
+            <div style={{ padding: '0 12px 10px' }}>
+              <label>체크포인트</label>
+              <select value={checkpoint} onChange={e => setCheckpoint(e.target.value)}>
+                {checkpoints.map(c => <option key={c}>{c}</option>)}
               </select>
-              {loraName && (
+            </div>
+          )}
+
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', padding: '0 12px 12px' }}>
+            {mode === 'dropdown' && (
+              <DropdownModePanel
+                checkpoint={checkpoint}
+                tagFileData={tagFileData}
+                koMap={koMap}
+                allWeights={allWeights}
+                run={run}
+                running={running}
+                result={result}
+                setResult={setResult}
+                setMeta={setMeta}
+                tags={tags} setTags={setTags}
+                usedPrompt={usedPrompt} setUsedPrompt={setUsedPrompt}
+                setTagPanelOpen={setTagPanelOpen}
+                onGenerated={() => setTagPanelOpen(true)}
+              />
+            )}
+            {mode === 'i2i' && (
+              <I2iModePanel
+                checkpoint={checkpoint}
+                run={run}
+                running={running}
+                setResult={setResult}
+                setMeta={setMeta}
+                onPreview={src => setI2iOverlay(src)}
+                openHistoryPicker={openHistoryPicker}
+              />
+            )}
+            {mode === 'video' && (
+              <VideoModePanel
+                onRun={startI2v}
+                running={jobRunning}
+                onPreview={src => setI2iOverlay(src)}
+                openHistoryPicker={openHistoryPicker}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* 오른쪽 태그 패널 (뷰포트를 밀어냄) */}
+        {hasTags && (
+          <div style={{
+            position: 'absolute', top: 0, right: 0, bottom: 0,
+            width: tagPanelOpen ? '35%' : 40, minWidth: tagPanelOpen ? 320 : 40,
+            background: 'var(--bg2)', borderLeft: '1px solid var(--border)',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            transition: 'width 0.2s ease', zIndex: 40,
+            boxShadow: tagPanelOpen ? '-4px 0 16px rgba(0,0,0,0.3)' : 'none',
+          }}>
+            <div style={{
+              padding: tagPanelOpen ? '10px 12px' : '10px 4px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex', gap: 8, alignItems: 'center', whiteSpace: 'nowrap',
+              justifyContent: tagPanelOpen ? 'flex-start' : 'center',
+            }}>
+              <button className="btn btn-ghost" style={{ padding: '4px 6px', minWidth: 0 }} onClick={() => setTagPanelOpen(v => !v)}>
+                {tagPanelOpen ? '접기 ▶' : '◀ 열기'}
+              </button>
+              {tagPanelOpen && (
                 <>
-                  <label>Strength: {loraStrength}</label>
-                  <input
-                    type="range" min={0} max={1} step={0.05}
-                    value={loraStrength}
-                    onChange={e => setLoraStrength(+e.target.value)}
-                    style={{ padding: 0, border: 'none', background: 'none' }}
-                  />
+                  <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>패스 유형</span>
+                  {['문제 없음', '그림체', '인체 디테일', '마음에 들지 않음'].map(p => (
+                    <button key={p} className="btn btn-ghost"
+                      style={{ padding: '3px 8px', fontSize: 11, ...(passType === p ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                      onClick={() => setPassType(p)}>{p}</button>
+                  ))}
                 </>
               )}
             </div>
-          </div>
-          {/* 부정 프롬프트 */}
-          {mode === 'dropdown' && (
-            <div>
-              <label>❌ 부정 프롬프트</label>
-              <textarea value={negative} onChange={e => setNegative(e.target.value)}
-                style={{ height: 56, resize: 'vertical', fontSize: 11 }} />
-            </div>
-          )}
-
-          {/* 고급 옵션 토글 */}
-          {mode === 'dropdown' && (
-            <div>
-              <button
-                className="btn btn-ghost"
-                style={{ width: '100%', fontSize: 11, padding: '4px 8px', textAlign: 'left' }}
-                onClick={() => setShowAdvanced(v => !v)}
-              >
-                {showAdvanced ? '▼' : '▶'} 고급 옵션 (카테고리 네비)
-              </button>
-
-              {showAdvanced && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
-                  {/* 1차 카테고리 버튼 */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {CATEGORY_ORDER.map(cat => (
-                      <button key={cat} className="btn btn-ghost"
-                        style={{ fontSize: 11, padding: '3px 8px',
-                          ...(selectedNav === cat ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
-                        onClick={() => {
-                          setSelectedNav(cat)
-                          catRefs.current[cat]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                        }}>
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* 2차 카테고리 버튼 */}
-                  {selectedNav && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {(CATEGORY_CONFIG[selectedNav] || []).map(sub => (
-                        <button key={sub.key} className="btn btn-ghost"
-                          style={{ fontSize: 11, padding: '2px 6px' }}
-                          onClick={() => {
-                            const subKey = `${selectedNav}.${sub.key}`
-                            setOpenSubs(prev => {
-                              const s = new Set(prev)
-                              if (s.has(subKey)) { s.delete(subKey); return s }
-                              s.add(subKey)
-                              return s
-                            })
-                            setTimeout(() => {
-                              subRefs.current[subKey]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                            }, 50)
-                          }}>
-                          {sub.label}
-                        </button>
-                      ))}
+            {tagPanelOpen && (
+              <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+                {passType !== '마음에 들지 않음' && (
+                  <>
+                    <PromptTags prompt={usedPrompt} />
+                    <TagPanel tags={tags} koMap={koMap} liked={likedTags} disliked={dislikedTags} passed={falseTags}
+                      onLike={tag => setLikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), dislikedTags.delete(tag), falseTags.delete(tag)); return s })}
+                      onDislike={tag => setDislikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), falseTags.delete(tag)); return s })}
+                      onPass={tag => setFalseTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), dislikedTags.delete(tag)); return s })}
+                    />
+                    <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
+                      <label>Score: {score}</label>
+                      <input type="range" min={0} max={10} value={score}
+                        onChange={e => setScore(+e.target.value)}
+                        style={{ padding: 0, border: 'none', background: 'none', width: '100%' }} />
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* 스크롤 영역 */}
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8 }}>
-
-          {/* 드롭박스 모드 */}
-          {mode === 'dropdown' && CATEGORY_ORDER.map(cat => {
-            const config = CATEGORY_CONFIG[cat] || []
-            const fileData = tagFileData[cat] || {}
-
-            // 배타 관계 계산
-            const disabledSubs = new Set()
-            for (const sub of config) {
-              if (!sub.exclusiveWith) continue
-              const subKey = `${cat}.${sub.key}`
-              const hasSelection = (dropSelections[subKey] || []).length > 0
-              if (hasSelection) sub.exclusiveWith.forEach(excl => disabledSubs.add(excl))
-            }
-
-            return (
-              <div key={cat} ref={el => catRefs.current[cat] = el} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, flexShrink: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>{cat}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {config.map(sub => {
-                    const subKey = `${cat}.${sub.key}`
-                    const isDisabled = disabledSubs.has(subKey)
-                    const isRandom = dropRandom[subKey] || false
-                    const selected = dropSelections[subKey] || []
-                    const isOpen = openSubs.has(subKey)
-                    const list = getSubcategoryTags(fileData, sub.key)
-
-                    const topTags = !isOpen ? [] : list
-                      .filter(t => (allWeights[t.en] || 0) > 0)
-                      .sort((a, b) => (allWeights[b.en] || 0) - (allWeights[a.en] || 0))
-                      .slice(0, 5)
-
-                    return (
-                      <div key={subKey} ref={el => subRefs.current[subKey] = el} style={{
-                        borderRadius: 6,
-                        background: isDisabled ? 'var(--bg)' : 'var(--bg3)',
-                        opacity: isDisabled ? 0.4 : 1,
-                        pointerEvents: isDisabled ? 'none' : 'auto',
-                        marginBottom: 4,
-                      }}>
-                        {/* 2차 카테고리 헤더 — 항상 표시 */}
-                        <div
-                          onClick={() => !isDisabled && toggleSub(subKey)}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 6,
-                            padding: '6px 8px', cursor: 'pointer',
-                            borderRadius: isOpen ? '6px 6px 0 0' : 6,
-                            borderBottom: isOpen ? '1px solid var(--border)' : 'none',
-                          }}
-                        >
-                          <span style={{ fontSize: 11, color: 'var(--text-dim)', flex: 1 }}>
-                            {sub.label}
-                            {!sub.multi && <span style={{ color: 'var(--accent)', marginLeft: 4, fontSize: 10 }}>단일</span>}
-                          <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>{isOpen ? '▼' : '▶'}</span>
-                          </span>
-                          {/* 랜덤 체크박스 — 항상 표시 */}
-                          <label
-                            style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, margin: 0, cursor: 'pointer' }}
-                            onClick={e => e.stopPropagation()}
-                          >
-                            <input type="checkbox" checked={isRandom}
-                              onChange={e => {
-                                const checked = e.target.checked
-                                setDropRandom(prev => ({ ...prev, [subKey]: checked }))
-                                if (checked) {
-                                  if (list.length) {
-                                    const picked = list[Math.floor(Math.random() * list.length)].en
-                                    setDropRandomFixed(prev => ({ ...prev, [subKey]: picked }))
-                                  }
-                                } else {
-                                  setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
-                                }
-                              }} />
-                            랜덤
-                          </label>
-                        </div>
-
-                        {/* 선택된 배지 — 항상 표시 */}
-                        {selected.length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, padding: '4px 8px' }}>
-                            {selected.map(en => {
-                              const item = list.find(t => t.en === en)
-                              return (
-                                <span key={en} style={{
-                                  background: 'var(--accent)', color: '#fff',
-                                  borderRadius: 4, padding: '1px 6px', fontSize: 11,
-                                  display: 'flex', alignItems: 'center', gap: 3
-                                }}>
-                                  {item ? `${item.ko}(${en})` : en}
-                                  <button onClick={() => setDropSelections(prev => ({
-                                    ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
-                                  }))} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, fontSize: 11 }}>×</button>
-                                </span>
-                              )
-                            })}
-                          </div>
-                        )}
-
-                        {/* 펼쳐진 상태에서만 표시 */}
-                        {isOpen && !isRandom && (
-                          <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {/* ★ 추천 칩 */}
-                            {topTags.length > 0 && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
-                                <span style={{ fontSize: 13, marginRight: 2 }}>
-                                  <span style={{ color: 'var(--gold-chip)' }}>★</span> 자주 사용하는 태그
-                                </span>
-                                {topTags.map(t => {
-                                  const isSelected = selected.includes(t.en)
-                                  return (
-                                    <button key={t.en} className="btn btn-ghost"
-                                      style={{
-                                        fontSize: 10, padding: '1px 6px',
-                                        borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
-                                        color: isSelected ? 'var(--accent)' : 'var(--text)',
-                                      }}
-                                      onClick={() => {
-                                        setDropSelections(prev => {
-                                          const cur = prev[subKey] || []
-                                          if (isSelected) return { ...prev, [subKey]: cur.filter(e => e !== t.en) }
-                                          if (!sub.multi) return { ...prev, [subKey]: [t.en] }
-                                          return { ...prev, [subKey]: [...cur, t.en] }
-                                        })
-                                      }}>
-                                      {t.ko || t.en}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            )}
-
-                            {/* 태그 후보 목록 */}
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, maxHeight: 120, overflowY: 'auto', padding: '2px 0' }}>
-                              {(() => {
-                                const fuse = buildFuse(list)
-                                const filtered = list
-                                return filtered.map(t => {
-                                  const isSelected = selected.includes(t.en)
-                                  return (
-                                    <button key={t.en} className="btn btn-ghost"
-                                      style={{ fontSize: 11, padding: '2px 6px',
-                                        ...(isSelected ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
-                                      onClick={() => {
-                                        setDropSelections(prev => {
-                                          const cur = prev[subKey] || []
-                                          if (isSelected) return { ...prev, [subKey]: cur.filter(e => e !== t.en) }
-                                          if (!sub.multi) return { ...prev, [subKey]: [t.en] }
-                                          return { ...prev, [subKey]: [...cur, t.en] }
-                                        })
-                                      }}>
-                                      {t.ko}({t.en})
-                                    </button>
-                                  )
-                                })
-                              })()}
-                              {list.length === 0 && (
-                                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>데이터 없음</span>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* 랜덤 고정값 표시 */}
-                        {isOpen && isRandom && dropRandomFixed[subKey] && (
-                          <div style={{ padding: '6px 8px', fontSize: 11, color: 'var(--text-dim)' }}>
-                            고정: {dropRandomFixed[subKey]}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
+                  </>
+                )}
               </div>
-            )
-          })}
-
-          {/* i2i 모드 */}
-          {mode === 'i2i' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-
-              {/* 프롬프트 */}
-              <div>
-                <label>✅ 긍정 프롬프트</label>
-                <textarea value={i2iPrompt} onChange={e => setI2iPrompt(e.target.value)}
-                  placeholder="비워두면 공백으로 전달"
-                  style={{ height: 70, resize: 'vertical' }} />
+            )}
+            {tagPanelOpen && (
+              <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
+                <button className="btn btn-primary" style={{ width: '100%' }} onClick={saveFeedback}>저장</button>
               </div>
-              <div>
-                <label>❌ 부정 프롬프트</label>
-                <textarea value={i2iNegative} onChange={e => setI2iNegative(e.target.value)}
-                  placeholder="비워두면 기본 네거티브 사용"
-                  style={{ height: 50, resize: 'vertical' }} />
-              </div>
-
-              {/* Denoise */}
-              <div>
-                <label>Denoise: {i2iDenoise} (낮을수록 원본 유지)</label>
-                <input type="range" min={0.1} max={1.0} step={0.05} value={i2iDenoise}
-                  onChange={e => setI2iDenoise(+e.target.value)}
-                  style={{ padding: 0, border: 'none', background: 'none' }} />
-              </div>
-
-              {/* 이미지 슬롯 */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label>이미지 슬롯</label>
-
-                {/* 베이스 */}
-                <I2iSlot
-                  label="베이스"
-                  required
-                  value={i2iBaseImage}
-                  onUpload={e => handleI2iUpload(e, setI2iBaseImage)}
-                  onHistoryPick={() => setShowHistoryPicker(true)}
-                  onRemove={() => setI2iBaseImage(null)}
-                  onPreview={src => setI2iOverlay(src)}
-                />
-
-                {/* 마스크 */}
-                <I2iSlot
-                  label="마스크"
-                  value={i2iMaskSrc ? { src: i2iMaskSrc, filename: '마스크' } : null}
-                  onDraw={() => {
-                    if (!i2iBaseImage) { alert('베이스 이미지를 먼저 선택해주세요'); return }
-                    setShowMaskDraw(true)
-                  }}
-                  onRemove={() => { setI2iMaskBlob(null); setI2iMaskSrc(null) }}
-                  onPreview={src => setI2iOverlay(src)}
-                />
-
-                {/* 레퍼런스 */}
-                <I2iSlot
-                  label="레퍼런스"
-                  value={i2iRefImage}
-                  onUpload={e => handleI2iUpload(e, setI2iRefImage)}
-                  onRemove={() => setI2iRefImage(null)}
-                  onPreview={src => setI2iOverlay(src)}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* 태그 패널 오버레이 */}
-      {result && tags.length > 0 && (
-        <div style={{
-          position: 'fixed', top: 0, right: 0, bottom: 0,
-          width: tagPanelOpen ? '35%' : '40px', minWidth: tagPanelOpen ? 320 : 40,
-          background: 'var(--bg2)',
-          borderLeft: '1px solid var(--border)',
-          display: 'flex', flexDirection: 'column',
-          overflow: 'hidden',
-          transition: 'width 0.2s ease',
-          zIndex: 100,
-          boxShadow: tagPanelOpen ? '-4px 0 16px rgba(0,0,0,0.3)' : 'none',
-        }}>
-          <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center', whiteSpace: 'nowrap' }}>
-            <button className="btn btn-ghost" onClick={() => setTagPanelOpen(v => !v)}>
-              {tagPanelOpen ? '▶' : '◀'}
-            </button>
-            {tagPanelOpen && (
-              <>
-                <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>패스 유형</span>
-                {['문제 없음', '그림체', '인체 디테일', '마음에 들지 않음'].map(p => (
-                  <button key={p} className="btn btn-ghost"
-                    style={{ padding: '3px 8px', fontSize: 11, ...(passType === p ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
-                    onClick={() => setPassType(p)}>{p}</button>
-                ))}
-              </>
-            )}
-          </div>
-          {tagPanelOpen && (
-            <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-              {passType !== '마음에 들지 않음' && (
-                <>
-                  <PromptTags prompt={usedPrompt} />
-                  <TagPanel tags={tags} koMap={koMap} liked={likedTags} disliked={dislikedTags} passed={falseTags}
-                    onLike={tag => setLikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), dislikedTags.delete(tag), falseTags.delete(tag)); return s })}
-                    onDislike={tag => setDislikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), falseTags.delete(tag)); return s })}
-                    onPass={tag => setFalseTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), dislikedTags.delete(tag)); return s })}
-                  />
-                  <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
-                    <label>Score: {score}</label>
-                    <input type="range" min={0} max={10} value={score}
-                      onChange={e => setScore(+e.target.value)}
-                      style={{ padding: 0, border: 'none', background: 'none', width: '100%' }} />
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          {tagPanelOpen && (
-            <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
-              <button className="btn btn-primary" style={{ width: '100%' }} onClick={saveFeedback}>저장</button>
-            </div>
-          )}
-        </div>
-      )}
-      {/* 이미지 오버레이 */}
+      {/* 공용 오버레이들 */}
       {i2iOverlay && (
-        <div
-          onClick={() => setI2iOverlay(null)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 400,
-            background: 'rgba(0,0,0,0.85)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
+        <div onClick={() => setI2iOverlay(null)} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={i2iOverlay} style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8 }} />
         </div>
       )}
-
-      {/* 히스토리 이미지 피커 */}
       {showHistoryPicker && (
         <HistoryImagePicker
-          onPick={handleHistoryPick}
+          onPick={(gen) => { historyPickerTarget?.(gen); setShowHistoryPicker(false) }}
           onClose={() => setShowHistoryPicker(false)}
-        />
-      )}
-      {/* 마스크 드로잉 오버레이 */}
-      {showMaskDraw && i2iBaseImage && (
-        <MaskDrawOverlay
-          imageSrc={i2iBaseImage.src}
-          onDone={(blob, previewSrc) => {
-            setI2iMaskBlob(blob)
-            setI2iMaskSrc(previewSrc)
-            setShowMaskDraw(false)
-          }}
-          onClose={() => setShowMaskDraw(false)}
         />
       )}
     </div>
   )
 }
 
-// ── i2i 슬롯 컴포넌트 ─────────────────────────────────────
+// ── 공용 슬롯 컴포넌트 ─────────────────────────────────────
 function I2iSlot({ label, required, value, onUpload, onHistoryPick, onDraw, onRemove, onPreview }) {
   return (
     <div style={{
@@ -1273,7 +523,6 @@ function I2iSlot({ label, required, value, onUpload, onHistoryPick, onDraw, onRe
     </div>
   )
 }
-
 
 // ── 히스토리 이미지 피커 ──────────────────────────────────
 function HistoryImagePicker({ onPick, onClose }) {
@@ -1483,7 +732,6 @@ function MaskDrawOverlay({ imageSrc, onDone, onClose }) {
           width: '90vw', height: '90vh',
         }}
       >
-        {/* 헤더 */}
         <div style={{
           height: 48, padding: '0 16px', display: 'flex', alignItems: 'center', gap: 12,
           borderBottom: '1px solid var(--border)', flexShrink: 0,
@@ -1501,7 +749,6 @@ function MaskDrawOverlay({ imageSrc, onDone, onClose }) {
           <button className="btn btn-ghost" onClick={onClose}>✕</button>
         </div>
 
-        {/* 캔버스 뷰포트 */}
         <div
           ref={viewportRef}
           onMouseDown={handleMouseDown}
@@ -1529,6 +776,1040 @@ function MaskDrawOverlay({ imageSrc, onDone, onClose }) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── 비디오 모드 패널 ──────────────────────────────────────
+function VideoModePanel({ onRun, running, onPreview, openHistoryPicker }) {
+  const [subMode, setSubMode]       = useState('i2v')
+  const [baseImage, setBaseImage]   = useState(null)
+  const [prompt, setPrompt]         = useState('')
+  const [negative, setNegative]     = useState('')
+  const [seed, setSeed]             = useState(-1)
+  const [width, setWidth]           = useState(1280)
+  const [height, setHeight]         = useState(720)
+  const [length, setLength]         = useState(81)
+  const [highSteps, setHighSteps]   = useState(2)
+  const [lowSteps, setLowSteps]     = useState(3)
+  const [cfg, setCfg]               = useState(1.0)
+  const [loraName, setLoraName]         = useState('')
+  const [loraStrength, setLoraStrength] = useState(0.8)
+
+  const { data: loraData } = useQuery({
+    queryKey: ['loras'],
+    queryFn: () => sdApi.loras().then(r => r.data),
+  })
+  const loras = loraData?.loras || []
+
+  // 입력 복원 (마운트 시 1회)
+  useEffect(() => {
+    const saved = localStorage.getItem('i2vDraft')
+    if (!saved) return
+    try {
+      const d = JSON.parse(saved)
+      if (d.baseImage) {
+        setBaseImage({
+          ...d.baseImage,
+          src: `${API_BASE}/api/system/image?path=${encodeURIComponent(d.baseImage.path)}`,
+        })
+      }
+      if (d.prompt !== undefined) setPrompt(d.prompt)
+      if (d.negative !== undefined) setNegative(d.negative)
+      if (d.seed !== undefined) setSeed(d.seed)
+      if (d.width !== undefined) setWidth(d.width)
+      if (d.height !== undefined) setHeight(d.height)
+      if (d.length !== undefined) setLength(d.length)
+      if (d.highSteps !== undefined) setHighSteps(d.highSteps)
+      if (d.lowSteps !== undefined) setLowSteps(d.lowSteps)
+      if (d.cfg !== undefined) setCfg(d.cfg)
+      if (d.loraName !== undefined) setLoraName(d.loraName)
+      if (d.loraStrength !== undefined) setLoraStrength(d.loraStrength)
+    } catch (e) {
+      console.error('i2v draft 복원 실패', e)
+    }
+  }, [])
+
+  // 입력 저장 (변경 시마다)
+  useEffect(() => {
+    const draft = {
+      baseImage: baseImage ? { path: baseImage.path, filename: baseImage.filename } : null,
+      prompt, negative, seed, width, height, length, highSteps, lowSteps, cfg, loraName, loraStrength,
+    }
+    localStorage.setItem('i2vDraft', JSON.stringify(draft))
+  }, [baseImage, prompt, negative, seed, width, height, length, highSteps, lowSteps, cfg, loraName, loraStrength])
+
+  async function handleUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const res = await systemApi.uploadImage(file)
+    const src = URL.createObjectURL(file)
+    setBaseImage({ path: res.data.path, src, filename: file.name })
+  }
+
+  function handleRun() {
+    const payload = {
+      image_path: baseImage.path, prompt, negative, seed, width, height, length,
+      high_steps: highSteps, low_steps: lowSteps, cfg,
+      lora_name: loraName, lora_strength: loraStrength,
+    }
+    const metaInfo = {
+      모드: 'I2V', 프롬프트: prompt, 네거티브: negative, 시드: seed,
+      해상도: `${width}x${height}`, 프레임: length,
+      스텝: `High ${highSteps} / Low ${lowSteps}`, CFG: cfg,
+      LoRA: loraName ? `${loraName} (${loraStrength})` : '없음',
+    }
+    onRun(payload, metaInfo)
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
+      {/* 서브 모드 */}
+      <div style={{ display: 'flex', gap: 4 }}>
+        {[['i2v', '🖼️→🎬 I2V'], ['t2v', '📝→🎬 T2V (준비중)']].map(([key, label]) => (
+          <button key={key} className="btn btn-ghost"
+            disabled={key === 't2v'}
+            style={{ fontSize: 11, padding: '3px 10px', ...(subMode === key ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+            onClick={() => setSubMode(key)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {subMode === 'i2v' && (
+        <>
+          <I2iSlot
+            label="베이스"
+            required
+            value={baseImage}
+            onUpload={handleUpload}
+            onHistoryPick={() => openHistoryPicker(gen => {
+              const path = gen.image_path
+              const src = `${API_BASE}/api/system/image?path=${encodeURIComponent(path)}`
+              setBaseImage({ path, src, filename: path.split(/[/\\]/).pop() })
+            })}
+            onRemove={() => setBaseImage(null)}
+            onPreview={onPreview}
+          />
+
+          <div>
+            <label>✅ 프롬프트</label>
+            <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
+              style={{ height: 70, resize: 'vertical', fontSize: 11 }} />
+          </div>
+          <div>
+            <label>❌ 네거티브</label>
+            <textarea value={negative} onChange={e => setNegative(e.target.value)}
+              style={{ height: 50, resize: 'vertical', fontSize: 11 }} />
+          </div>
+
+          {/* LoRA */}
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>🎨 LoRA</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <select value={loraName} onChange={e => setLoraName(e.target.value)} style={{ fontSize: 12 }}>
+                <option value="">LoRA 없음</option>
+                {loras.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              {loraName && (
+                <>
+                  <label>Strength: {loraStrength}</label>
+                  <input type="range" min={0} max={1} step={0.05} value={loraStrength}
+                    onChange={e => setLoraStrength(+e.target.value)}
+                    style={{ padding: 0, border: 'none', background: 'none' }} />
+                </>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div><label>Width</label><input type="number" value={width} step={8} onChange={e => setWidth(+e.target.value)} /></div>
+            <div><label>Height</label><input type="number" value={height} step={8} onChange={e => setHeight(+e.target.value)} /></div>
+            <div><label>Frames</label><input type="number" value={length} onChange={e => setLength(+e.target.value)} /></div>
+            <div><label>Seed (-1=랜덤)</label><input type="number" value={seed} onChange={e => setSeed(+e.target.value)} /></div>
+            <div><label>High Steps</label><input type="number" value={highSteps} min={1} onChange={e => setHighSteps(+e.target.value)} /></div>
+            <div><label>Low Steps</label><input type="number" value={lowSteps} min={1} onChange={e => setLowSteps(+e.target.value)} /></div>
+            <div><label>CFG: {cfg}</label><input type="range" min={1} max={10} step={0.5} value={cfg} onChange={e => setCfg(+e.target.value)} style={{ padding: 0, border: 'none', background: 'none' }} /></div>
+          </div>
+
+          <button className="btn btn-primary" disabled={running || !baseImage} onClick={handleRun}>
+            {running ? '생성 중...' : '🎬 비디오 생성'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── i2i 모드 패널 ──────────────────────────────────────────
+function I2iModePanel({ checkpoint, run, running, setResult, setMeta, onPreview, openHistoryPicker }) {
+  const [baseImage, setBaseImage] = useState(null)
+  const [maskBlob, setMaskBlob]   = useState(null)
+  const [maskSrc, setMaskSrc]     = useState(null)
+  const [refImage, setRefImage]   = useState(null)
+  const [prompt, setPrompt]       = useState('')
+  const [negative, setNegative]   = useState('')
+  const [denoise, setDenoise]     = useState(0.7)
+  const [seed, setSeed]           = useState(-1)
+  const [showMaskDraw, setShowMaskDraw] = useState(false)
+  const [loraName, setLoraName]         = useState('')
+  const [loraStrength, setLoraStrength] = useState(0.8)
+
+  const { data: loraData } = useQuery({
+    queryKey: ['loras'],
+    queryFn: () => sdApi.loras().then(r => r.data),
+  })
+  const loras = loraData?.loras || []
+
+  async function handleUpload(e, setSlot) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const res = await systemApi.uploadImage(file)
+      const { path } = res.data
+      const src = URL.createObjectURL(file)
+      setSlot({ file, filename: file.name, src, path, fromHistory: true })
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  async function generate() {
+    if (!baseImage) { alert('베이스 이미지를 선택해주세요'); return }
+
+    let imagePath = baseImage.path || ''
+    if (!baseImage.fromHistory) {
+      alert('파일 업로드 엔드포인트 미구현 — 히스토리 이미지를 사용해주세요')
+      return
+    }
+
+    setResult(null)
+    const metaInfo = {
+      모드: 'i2i', 체크포인트: checkpoint, 프롬프트: prompt, 네거티브: negative,
+      Denoise: denoise, 시드: seed,
+      LoRA: loraName ? `${loraName} (${loraStrength})` : '없음',
+      마스크: maskBlob ? '있음' : '없음',
+    }
+
+    if (maskBlob) {
+      const form = new FormData()
+      form.append('image_path', imagePath)
+      form.append('checkpoint', checkpoint)
+      form.append('prompt', prompt)
+      form.append('negative', negative)
+      form.append('denoise', denoise)
+      form.append('seed', seed)
+      form.append('mask_file', maskBlob, 'mask.png')
+      form.append('lora_name', loraName)
+      form.append('lora_strength', loraStrength)
+
+      await run(sdApi.i2iMaskUrl(), form, {
+        onDone: (data) => { setResult(data); setMeta(metaInfo) }
+      })
+    } else {
+      await run(
+        sdApi.i2iUrl(),
+        {
+          image_path: imagePath, checkpoint, prompt, negative, denoise, seed,
+          lora_name: loraName, lora_strength: loraStrength,
+        },
+        { onDone: (data) => { setResult(data); setMeta(metaInfo) } }
+      )
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
+      <div>
+        <label>✅ 긍정 프롬프트</label>
+        <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
+          placeholder="비워두면 공백으로 전달"
+          style={{ height: 70, resize: 'vertical' }} />
+      </div>
+      <div>
+        <label>❌ 부정 프롬프트</label>
+        <textarea value={negative} onChange={e => setNegative(e.target.value)}
+          placeholder="비워두면 기본 네거티브 사용"
+          style={{ height: 50, resize: 'vertical' }} />
+      </div>
+
+      <div>
+        <label>Denoise: {denoise} (낮을수록 원본 유지)</label>
+        <input type="range" min={0.1} max={1.0} step={0.05} value={denoise}
+          onChange={e => setDenoise(+e.target.value)}
+          style={{ padding: 0, border: 'none', background: 'none' }} />
+      </div>
+
+      {/* LoRA */}
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>🎨 LoRA</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <select value={loraName} onChange={e => setLoraName(e.target.value)} style={{ fontSize: 12 }}>
+            <option value="">LoRA 없음</option>
+            {loras.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+          {loraName && (
+            <>
+              <label>Strength: {loraStrength}</label>
+              <input type="range" min={0} max={1} step={0.05} value={loraStrength}
+                onChange={e => setLoraStrength(+e.target.value)}
+                style={{ padding: 0, border: 'none', background: 'none' }} />
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <label>이미지 슬롯</label>
+
+        <I2iSlot
+          label="베이스" required value={baseImage}
+          onUpload={e => handleUpload(e, setBaseImage)}
+          onHistoryPick={() => openHistoryPicker(gen => {
+            const path = gen.image_path
+            const src = `${API_BASE}/api/system/image?path=${encodeURIComponent(path)}`
+            setBaseImage({ file: null, filename: path.split(/[/\\]/).pop(), src, path, fromHistory: true })
+          })}
+          onRemove={() => setBaseImage(null)}
+          onPreview={onPreview}
+        />
+
+        <I2iSlot
+          label="마스크"
+          value={maskSrc ? { src: maskSrc, filename: '마스크' } : null}
+          onDraw={() => {
+            if (!baseImage) { alert('베이스 이미지를 먼저 선택해주세요'); return }
+            setShowMaskDraw(true)
+          }}
+          onRemove={() => { setMaskBlob(null); setMaskSrc(null) }}
+          onPreview={onPreview}
+        />
+
+        <I2iSlot
+          label="레퍼런스" value={refImage}
+          onUpload={e => handleUpload(e, setRefImage)}
+          onRemove={() => setRefImage(null)}
+          onPreview={onPreview}
+        />
+      </div>
+
+      <button className="btn btn-primary" disabled={running || !baseImage} onClick={generate}>
+        {running ? '생성 중...' : '이미지 생성'}
+      </button>
+
+      {showMaskDraw && baseImage && (
+        <MaskDrawOverlay
+          imageSrc={baseImage.src}
+          onDone={(blob, previewSrc) => {
+            setMaskBlob(blob)
+            setMaskSrc(previewSrc)
+            setShowMaskDraw(false)
+          }}
+          onClose={() => setShowMaskDraw(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── 드롭박스 모드 패널 ─────────────────────────────────────
+function DropdownModePanel({
+  checkpoint, tagFileData, koMap, allWeights, run, running,
+  result, setResult, setMeta,
+  tags, setTags, usedPrompt, setUsedPrompt, onGenerated, setTagPanelOpen
+}) {
+  const [negative, setNegative] = useState('')
+  const [dropSelections, setDropSelections] = useState(() => {
+    try {
+      const saved = localStorage.getItem('dropSelections')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })
+  const [dropRandom, setDropRandom] = useState(() => {
+    try {
+      const saved = localStorage.getItem('dropRandom')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })
+  const [dropRandomFixed, setDropRandomFixed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('dropRandomFixed')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })
+  const [promptOrder, setPromptOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem('promptOrder')
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
+  const [isDraggingTag, setIsDraggingTag] = useState(false)
+  const [globalNavIndex, setGlobalNavIndex] = useState(-1)
+  const [globalSearch, setGlobalSearch] = useState('')
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
+  const [openSubs, setOpenSubs] = useState(new Set())
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [selectedNav, setSelectedNav] = useState(null)
+  const catRefs = useRef({})
+  const subRefs = useRef({})
+  const fuseRef = useRef(null)
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  const [loraName, setLoraName]         = useState('')
+  const [loraStrength, setLoraStrength] = useState(0.8)
+
+  // 스플릿 리사이즈용
+  const [topRatio, setTopRatio] = useState(0.4)
+  const splitContainerRef = useRef(null)
+  const isDraggingSplitRef = useRef(false)
+
+  const sensors = useSensors(useSensor(PointerSensor, {
+    activationConstraint: { distance: 5 }
+  }))
+
+  const { data: loraData } = useQuery({
+    queryKey: ['loras'],
+    queryFn: () => sdApi.loras().then(r => r.data),
+  })
+  const loras = loraData?.loras || []
+
+  // ── 네거티브 초기값 ──
+  const { data: constants } = useQuery({
+    queryKey: ['constants'],
+    queryFn: () => client.get('/api/system/constants').then(r => r.data),
+  })
+  useEffect(() => {
+    if (constants?.negative_base && !negative) setNegative(constants.negative_base)
+  }, [constants])
+
+  // 프롬프트 dnd useEffect
+  useEffect(() => {
+    setPromptOrder(prev => {
+      const current = []
+      for (const cat of CATEGORY_ORDER) {
+        for (const sub of (CATEGORY_CONFIG[cat] || [])) {
+          const subKey = `${cat}.${sub.key}`
+          for (const en of (dropSelections[subKey] || [])) {
+            current.push({ subKey, en, isManual: false })
+          }
+        }
+      }
+      const currentSet = new Set(current.map(t => `${t.subKey}::${t.en}`))
+      const prevFiltered = prev.filter(t =>
+        t.isManual || currentSet.has(`${t.subKey}::${t.en}`)
+      )
+      const prevSet = new Set(prevFiltered.map(t =>
+        t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`
+      ))
+      const newTags = current.filter(t => !prevSet.has(`${t.subKey}::${t.en}`))
+      return [...prevFiltered, ...newTags]
+    })
+  }, [dropSelections])
+
+  // 저장
+  useEffect(() => { localStorage.setItem('dropSelections', JSON.stringify(dropSelections)) }, [dropSelections])
+  useEffect(() => { localStorage.setItem('dropRandom', JSON.stringify(dropRandom)) }, [dropRandom])
+  useEffect(() => { localStorage.setItem('dropRandomFixed', JSON.stringify(dropRandomFixed)) }, [dropRandomFixed])
+  useEffect(() => { localStorage.setItem('promptOrder', JSON.stringify(promptOrder)) }, [promptOrder])
+
+  const allTagsFlat = useMemo(() => {
+    const result = []
+    for (const cat of CATEGORY_ORDER) {
+      for (const sub of (CATEGORY_CONFIG[cat] || [])) {
+        const subKey = `${cat}.${sub.key}`
+        const fileData = tagFileData[cat] || {}
+        const list = getSubcategoryTags(fileData, sub.key)
+        for (const t of list) {
+          result.push({ ...t, cat, subKey, subLabel: sub.label })
+        }
+      }
+    }
+    return result
+  }, [tagFileData])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(globalSearch), 150)
+    return () => clearTimeout(timer)
+  }, [globalSearch])
+
+  const globalResults = useMemo(() => {
+    if (!debouncedSearch.trim()) return []
+    if (!fuseRef.current) return []
+    return fuseRef.current.search(debouncedSearch).map(r => r.item).slice(0, 30)
+  }, [debouncedSearch])
+
+  useEffect(() => {
+    fuseRef.current = new Fuse(allTagsFlat, {
+      keys: ['en', 'ko'], threshold: 0.4, distance: 100, includeScore: true,
+    })
+  }, [allTagsFlat])
+
+  function toggleSub(subKey) {
+    setOpenSubs(prev => {
+      const s = new Set(prev)
+      s.has(subKey) ? s.delete(subKey) : s.add(subKey)
+      return s
+    })
+  }
+
+  // 스플릿 드래그 핸들러
+  function handleSplitDrag(e) {
+    if (!isDraggingSplitRef.current || !splitContainerRef.current) return
+    const rect = splitContainerRef.current.getBoundingClientRect()
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    let ratio = (clientY - rect.top) / rect.height
+    ratio = Math.min(Math.max(ratio, 0.15), 0.85)
+    setTopRatio(ratio)
+  }
+
+  function stopSplitDrag() {
+    isDraggingSplitRef.current = false
+    window.removeEventListener('mousemove', handleSplitDrag)
+    window.removeEventListener('mouseup', stopSplitDrag)
+    window.removeEventListener('touchmove', handleSplitDrag)
+    window.removeEventListener('touchend', stopSplitDrag)
+  }
+
+  function startSplitDrag() {
+    isDraggingSplitRef.current = true
+    window.addEventListener('mousemove', handleSplitDrag)
+    window.addEventListener('mouseup', stopSplitDrag)
+    window.addEventListener('touchmove', handleSplitDrag)
+    window.addEventListener('touchend', stopSplitDrag)
+  }
+
+  async function generate() {
+    setResult(null)
+    setTags([])
+    setTagPanelOpen(false)
+
+    const parts = []
+    for (const cat of CATEGORY_ORDER) {
+      for (const sub of (CATEGORY_CONFIG[cat] || [])) {
+        const subKey = `${cat}.${sub.key}`
+        if (dropRandom[subKey]) {
+          const fixed = dropRandomFixed[subKey]
+          if (fixed) parts.push(fixed)
+        } else {
+          parts.push(...(dropSelections[subKey] || []))
+        }
+      }
+    }
+
+    const prompt = promptOrder.map(t => t.en).filter(Boolean).join(', ')
+
+    await run(
+      sdApi.generateUrl(),
+      { prompt, negative, checkpoint, lora_name: loraName, lora_strength: loraStrength },
+      {
+        onDone: async (data) => {
+          setResult(data)
+          setMeta({
+            모드: '드롭박스', 체크포인트: checkpoint, 프롬프트: prompt, 네거티브: negative,
+            LoRA: loraName ? `${loraName} (${loraStrength})` : '없음',
+          })
+          try {
+            const gen = await historyApi.generation(data.gen_id)
+            setUsedPrompt(gen.data.prompt || '')
+            setTags(gen.data.tags || [])
+            onGenerated?.()
+          } catch(e) { console.error('태그 조회 실패:', e) }
+        }
+      }
+    )
+  }
+
+  function SortableTag({ id, label, subLabel, isManual, onRemove, onClick }) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+    return (
+      <div ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.5 : 1,
+          display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start',
+          background: 'var(--bg3)',
+          border: `1px solid ${isManual ? 'var(--success)' : 'var(--accent)'}`,
+          borderRadius: 4, padding: '2px 6px', fontSize: 11,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          color: isManual ? 'var(--success)' : 'var(--accent)',
+        }}
+        {...attributes}
+        {...listeners}
+        onClick={onClick}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+          {subLabel && (
+            <span style={{ fontSize: 9, color: 'var(--text-dim)', marginRight: 2 }}>
+              [{subLabel}]
+            </span>
+          )}
+          {label}
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onRemove() }}
+            style={{ background: 'none', border: 'none', color: isManual ? 'var(--success)' : 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 11 }}
+          >×</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ flex: 1, width: 0, display: 'flex', flexDirection: 'column', gap: 8, overflow: 'hidden' }}>
+
+      <div ref={splitContainerRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+
+        {/* 상단 단: 검색, 프롬프트 미리보기, LoRA, 부정 프롬프트, 고급 옵션 */}
+        <div style={{
+          height: `${topRatio * 100}%`,
+          overflowY: 'auto',
+          display: 'flex', flexDirection: 'column', gap: 6,
+          paddingBottom: 8,
+        }}>
+
+          {/* 전체 태그 검색 */}
+          <div style={{ position: 'relative' }}>
+            <input
+              placeholder="🔍 전체 태그 검색..."
+              value={globalSearch}
+              onChange={e => { setGlobalSearch(e.target.value); setGlobalSearchOpen(true); setGlobalNavIndex(-1) }}
+              onFocus={() => setGlobalSearchOpen(true)}
+              onBlur={() => setTimeout(() => { setGlobalSearchOpen(false); setGlobalNavIndex(-1) }, 150)}
+              onKeyDown={e => {
+                if (e.key === 'ArrowDown') {
+                  if (!globalSearchOpen || globalResults.length === 0) return
+                  e.preventDefault()
+                  setGlobalNavIndex(prev => Math.min(prev + 1, globalResults.length - 1))
+                } else if (e.key === 'ArrowUp') {
+                  if (!globalSearchOpen || globalResults.length === 0) return
+                  e.preventDefault()
+                  setGlobalNavIndex(prev => Math.max(prev - 1, 0))
+                } else if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (globalNavIndex >= 0 && globalResults[globalNavIndex]) {
+                    const t = globalResults[globalNavIndex]
+                    const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
+                    const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
+                    setDropSelections(prev => {
+                      const cur = prev[t.subKey] || []
+                      if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
+                      if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
+                      return { ...prev, [t.subKey]: [...cur, t.en] }
+                    })
+                  } else if (globalSearch.trim()) {
+                    const newTags = globalSearch.split(',')
+                      .map(t => t.trim().replace(/ /g, '_'))
+                      .filter(t => t && !promptOrder.some(p => p.isManual && p.en === t))
+                    if (newTags.length) {
+                      setPromptOrder(prev => [
+                        ...prev,
+                        ...newTags.map(en => ({ subKey: null, en, isManual: true }))
+                      ])
+                    }
+                  }
+                  setGlobalSearch('')
+                  setGlobalSearchOpen(false)
+                  setGlobalNavIndex(-1)
+                }
+              }}
+              style={{ fontSize: 12 }}
+            />
+            {globalSearchOpen && globalResults.length > 0 && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+                background: 'var(--bg2)', border: '1px solid var(--border)',
+                borderRadius: 6, marginTop: 2,
+                maxHeight: 280, overflowY: 'auto',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+              }}>
+                {globalResults.map((t, i) => {
+                  const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
+                  const isNavActive = i === globalNavIndex
+                  return (
+                    <div key={`${t.subKey}-${t.en}-${i}`}
+                      onMouseDown={() => {
+                        const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
+                        setDropSelections(prev => {
+                          const cur = prev[t.subKey] || []
+                          if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
+                          if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
+                          return { ...prev, [t.subKey]: [...cur, t.en] }
+                        })
+                        setGlobalSearch('')
+                        setGlobalSearchOpen(false)
+                        setGlobalNavIndex(-1)
+                      }}
+                      onMouseEnter={() => setGlobalNavIndex(i)}
+                      onMouseLeave={() => setGlobalNavIndex(-1)}
+                      style={{
+                        padding: '6px 10px', cursor: 'pointer', fontSize: 11,
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        background: isNavActive ? 'var(--accent)' : isSelected ? 'var(--bg3)' : 'transparent',
+                        borderBottom: '1px solid var(--border)',
+                      }}
+                    >
+                      <span style={{ color: isNavActive ? '#fff' : 'var(--accent)', fontSize: 10, minWidth: 80 }}>
+                        {t.cat} / {t.subLabel}
+                      </span>
+                      <span style={{ color: isNavActive ? '#fff' : isSelected ? 'var(--accent)' : 'var(--text)' }}>
+                        {t.ko ? `${t.ko} (${t.en})` : t.en}
+                      </span>
+                      {isSelected && <span style={{ marginLeft: 'auto', color: isNavActive ? '#fff' : 'var(--accent)', fontSize: 10 }}>✓</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 최종 프롬프트 미리보기 */}
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>최종 프롬프트 미리보기</span>
+              <button className="btn btn-ghost"
+                style={{ fontSize: 11, padding: '2px 8px' }}
+                onClick={() => navigator.clipboard.writeText(promptOrder.map(t => t.en).join(', '))}>
+                📋 복사
+              </button>
+            </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={() => setIsDraggingTag(true)}
+              onDragEnd={({ active, over }) => {
+                setIsDraggingTag(false)
+                if (!over || active.id === over.id) return
+                setPromptOrder(prev => {
+                  const getId = t => t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`
+                  const oldIdx = prev.findIndex(t => getId(t) === active.id)
+                  const newIdx = prev.findIndex(t => getId(t) === over.id)
+                  return arrayMove(prev, oldIdx, newIdx)
+                })
+              }}
+            >
+              <SortableContext
+                items={promptOrder.map(t => t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`)}
+                strategy={rectSortingStrategy}
+              >
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 150, overflowY: 'auto' }}>
+                  {promptOrder.map((t) => {
+                    const { subKey, en, isManual } = t
+                    const cat = subKey?.split('.')[0]
+                    const fileData = cat ? (tagFileData[cat] || {}) : {}
+                    const subConf = cat ? (CATEGORY_CONFIG[cat] || []).find(s => `${cat}.${s.key}` === subKey) : null
+                    const list = subConf ? getSubcategoryTags(fileData, subConf.key) : []
+                    const item = list.find(t => t.en === en)
+                    const label = item ? `${item.ko}(${en})` : en
+                    const subLabel = subConf?.label || null
+                    const isRandom = !isManual && dropRandom[subKey] && dropRandomFixed[subKey] === en
+
+                    return (
+                      <SortableTag
+                        key={isManual ? `manual::${en}` : `${subKey}::${en}`}
+                        id={isManual ? `manual::${en}` : `${subKey}::${en}`}
+                        label={label}
+                        subLabel={subLabel}
+                        isManual={isManual}
+                        onClick={() => {
+                          if (isManual) {
+                            setPromptOrder(prev => prev.filter(t => !(t.isManual && t.en === en)))
+                          } else if (isRandom) {
+                            setDropRandom(prev => ({ ...prev, [subKey]: false }))
+                            setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
+                          } else {
+                            setDropSelections(prev => ({
+                              ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
+                            }))
+                          }
+                        }}
+                        onRemove={() => {
+                          if (isManual) {
+                            setPromptOrder(prev => prev.filter(t => !(t.isManual && t.en === en)))
+                          } else if (isRandom) {
+                            setDropRandom(prev => ({ ...prev, [subKey]: false }))
+                            setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
+                          } else {
+                            setDropSelections(prev => ({
+                              ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
+                            }))
+                          }
+                        }}
+                      />
+                    )
+                  })}
+                </div>
+              </SortableContext>
+            </DndContext>
+          </div>
+
+          {/* LoRA */}
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>🎨 LoRA</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <select value={loraName} onChange={e => setLoraName(e.target.value)} style={{ fontSize: 12 }}>
+                <option value="">LoRA 없음</option>
+                {loras.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              {loraName && (
+                <>
+                  <label>Strength: {loraStrength}</label>
+                  <input type="range" min={0} max={1} step={0.05} value={loraStrength}
+                    onChange={e => setLoraStrength(+e.target.value)}
+                    style={{ padding: 0, border: 'none', background: 'none' }} />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* 부정 프롬프트 */}
+          <div>
+            <label>❌ 부정 프롬프트</label>
+            <textarea value={negative} onChange={e => setNegative(e.target.value)}
+              style={{ height: 56, resize: 'vertical', fontSize: 11 }} />
+          </div>
+
+          {/* 고급 옵션 토글 */}
+          <div>
+            <button
+              className="btn btn-ghost"
+              style={{ width: '100%', fontSize: 11, padding: '4px 8px', textAlign: 'left' }}
+              onClick={() => setShowAdvanced(v => !v)}
+            >
+              {showAdvanced ? '▼' : '▶'} 고급 옵션 (카테고리 네비)
+            </button>
+
+            {showAdvanced && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {CATEGORY_ORDER.map(cat => (
+                    <button key={cat} className="btn btn-ghost"
+                      style={{ fontSize: 11, padding: '3px 8px',
+                        ...(selectedNav === cat ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                      onClick={() => {
+                        setSelectedNav(cat)
+                        catRefs.current[cat]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      }}>
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                {selectedNav && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {(CATEGORY_CONFIG[selectedNav] || []).map(sub => (
+                      <button key={sub.key} className="btn btn-ghost"
+                        style={{ fontSize: 11, padding: '2px 6px' }}
+                        onClick={() => {
+                          const subKey = `${selectedNav}.${sub.key}`
+                          setOpenSubs(prev => {
+                            const s = new Set(prev)
+                            if (s.has(subKey)) { s.delete(subKey); return s }
+                            s.add(subKey)
+                            return s
+                          })
+                          setTimeout(() => {
+                            subRefs.current[subKey]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                          }, 50)
+                        }}>
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 드래그 핸들 */}
+        <div
+          onMouseDown={startSplitDrag}
+          onTouchStart={startSplitDrag}
+          style={{
+            height: 10, flexShrink: 0, cursor: 'row-resize',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'var(--bg3)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
+          }}
+        >
+          <div style={{ width: 32, height: 3, borderRadius: 2, background: 'var(--border)' }} />
+        </div>
+
+        {/* 하단 단: 카테고리 목록 */}
+        <div style={{
+          height: `${(1 - topRatio) * 100}%`,
+          overflowY: 'auto',
+          display: 'flex', flexDirection: 'column', gap: 8,
+          paddingTop: 8,
+        }}>
+          {CATEGORY_ORDER.map(cat => {
+            const config = CATEGORY_CONFIG[cat] || []
+            const fileData = tagFileData[cat] || {}
+
+            const disabledSubs = new Set()
+            for (const sub of config) {
+              if (!sub.exclusiveWith) continue
+              const subKey = `${cat}.${sub.key}`
+              const hasSelection = (dropSelections[subKey] || []).length > 0
+              if (hasSelection) sub.exclusiveWith.forEach(excl => disabledSubs.add(excl))
+            }
+
+            return (
+              <div key={cat} ref={el => catRefs.current[cat] = el} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>{cat}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {config.map(sub => {
+                    const subKey = `${cat}.${sub.key}`
+                    const isDisabled = disabledSubs.has(subKey)
+                    const isRandom = dropRandom[subKey] || false
+                    const selected = dropSelections[subKey] || []
+                    const isOpen = openSubs.has(subKey)
+                    const list = getSubcategoryTags(fileData, sub.key)
+
+                    const topTags = !isOpen ? [] : list
+                      .filter(t => (allWeights[t.en] || 0) > 0)
+                      .sort((a, b) => (allWeights[b.en] || 0) - (allWeights[a.en] || 0))
+                      .slice(0, 5)
+
+                    return (
+                      <div key={subKey} ref={el => subRefs.current[subKey] = el} style={{
+                        borderRadius: 6,
+                        background: isDisabled ? 'var(--bg)' : 'var(--bg3)',
+                        opacity: isDisabled ? 0.4 : 1,
+                        pointerEvents: isDisabled ? 'none' : 'auto',
+                        marginBottom: 4,
+                      }}>
+                        <div
+                          onClick={() => !isDisabled && toggleSub(subKey)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            padding: '6px 8px', cursor: 'pointer',
+                            borderRadius: isOpen ? '6px 6px 0 0' : 6,
+                            borderBottom: isOpen ? '1px solid var(--border)' : 'none',
+                          }}
+                        >
+                          <span style={{ fontSize: 11, color: 'var(--text-dim)', flex: 1 }}>
+                            {sub.label}
+                            {!sub.multi && <span style={{ color: 'var(--accent)', marginLeft: 4, fontSize: 10 }}>단일</span>}
+                            <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>{isOpen ? '▼' : '▶'}</span>
+                          </span>
+                          <label
+                            style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, margin: 0, cursor: 'pointer' }}
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <input type="checkbox" checked={isRandom}
+                              onChange={e => {
+                                const checked = e.target.checked
+                                setDropRandom(prev => ({ ...prev, [subKey]: checked }))
+                                if (checked) {
+                                  if (list.length) {
+                                    const picked = list[Math.floor(Math.random() * list.length)].en
+                                    setDropRandomFixed(prev => ({ ...prev, [subKey]: picked }))
+                                  }
+                                } else {
+                                  setDropRandomFixed(prev => { const n = {...prev}; delete n[subKey]; return n })
+                                }
+                              }} />
+                            랜덤
+                          </label>
+                        </div>
+
+                        {selected.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, padding: '4px 8px' }}>
+                            {selected.map(en => {
+                              const item = list.find(t => t.en === en)
+                              return (
+                                <span key={en} style={{
+                                  background: 'var(--accent)', color: '#fff',
+                                  borderRadius: 4, padding: '1px 6px', fontSize: 11,
+                                  display: 'flex', alignItems: 'center', gap: 3
+                                }}>
+                                  {item ? `${item.ko}(${en})` : en}
+                                  <button onClick={() => setDropSelections(prev => ({
+                                    ...prev, [subKey]: (prev[subKey] || []).filter(t => t !== en)
+                                  }))} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, fontSize: 11 }}>×</button>
+                                </span>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {isOpen && !isRandom && (
+                          <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {topTags.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
+                                <span style={{ fontSize: 13, marginRight: 2 }}>
+                                  <span style={{ color: 'var(--gold-chip)' }}>★</span> 자주 사용하는 태그
+                                </span>
+                                {topTags.map(t => {
+                                  const isSelected = selected.includes(t.en)
+                                  return (
+                                    <button key={t.en} className="btn btn-ghost"
+                                      style={{
+                                        fontSize: 10, padding: '1px 6px',
+                                        borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+                                        color: isSelected ? 'var(--accent)' : 'var(--text)',
+                                      }}
+                                      onClick={() => {
+                                        setDropSelections(prev => {
+                                          const cur = prev[subKey] || []
+                                          if (isSelected) return { ...prev, [subKey]: cur.filter(e => e !== t.en) }
+                                          if (!sub.multi) return { ...prev, [subKey]: [t.en] }
+                                          return { ...prev, [subKey]: [...cur, t.en] }
+                                        })
+                                      }}>
+                                      {t.ko || t.en}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
+
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, maxHeight: 120, overflowY: 'auto', padding: '2px 0' }}>
+                              {list.map(t => {
+                                const isSelected = selected.includes(t.en)
+                                return (
+                                  <button key={t.en} className="btn btn-ghost"
+                                    style={{ fontSize: 11, padding: '2px 6px',
+                                      ...(isSelected ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                                    onClick={() => {
+                                      setDropSelections(prev => {
+                                        const cur = prev[subKey] || []
+                                        if (isSelected) return { ...prev, [subKey]: cur.filter(e => e !== t.en) }
+                                        if (!sub.multi) return { ...prev, [subKey]: [t.en] }
+                                        return { ...prev, [subKey]: [...cur, t.en] }
+                                      })
+                                    }}>
+                                    {t.ko}({t.en})
+                                  </button>
+                                )
+                              })}
+                              {list.length === 0 && (
+                                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>데이터 없음</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {isOpen && isRandom && dropRandomFixed[subKey] && (
+                          <div style={{ padding: '6px 8px', fontSize: 11, color: 'var(--text-dim)' }}>
+                            고정: {dropRandomFixed[subKey]}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+      </div>
+
+      <button className="btn btn-primary" onClick={generate} disabled={running || !checkpoint} style={{ flexShrink: 0 }}>
+        {running ? '생성 중...' : '이미지 생성'}
+      </button>
     </div>
   )
 }

@@ -1,18 +1,28 @@
 from pathlib import Path
-
+import os
 # PATH
 PROJECT_ROOT= Path(__file__).resolve().parent.parent
 COMFY_LOOT   = Path(r"C:\AI\ComfyUI_windows_portable")
 LOCAL_PYTHON = Path(r"C:\python3.10.\python.exe")
 COMFY_DIR   = COMFY_LOOT/"ComfyUI"
 ASSETS_DIR  = PROJECT_ROOT/"assets"
+MODEL_DIR   = COMFY_LOOT/"models"
+# NOTIFY
+NOTIFY_CONFIG_PATH = PROJECT_ROOT/"config"/"notify.json"
+FFMPEG_PATH = Path(r"C:\AI\ComfyUI_windows_portable\ComfyUI\custom_nodes\ComfyUI-FFmpeg\bin\ffmpeg.exe")
 # python
 GRADIO_INPAINT  = PROJECT_ROOT/"app"/"gradio_inpaint.py"
 # DB
 DB_PATH     = PROJECT_ROOT /"data"/"data.db"
+LLM_DB_PATH = PROJECT_ROOT /"data"/ "llm_chat.db"
+# Ollama
+OLLAMA_APP_PATH = Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Ollama" / "ollama app.exe"
 # TAG_MODEL
 MODEL_PATH     = ASSETS_DIR/"models"/"wd14"/"model.onnx"
 MODEL_TAG_PATH = ASSETS_DIR/"models"/"wd14"/"selected_tags.csv"
+# MODEL
+IPA_MODEL         = MODEL_DIR/"ipadapter"/"ip-adapter_sdxl_vit-h.safetensors"
+CLIP_VISION_MODEL = MODEL_DIR/"clip_vision"/"CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
 # Comfy_UI
 COMFY_URL           = "http://127.0.0.1:8188"
 COMFY_WS            = "ws://127.0.0.1:8188/ws"

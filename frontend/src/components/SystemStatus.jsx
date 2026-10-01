@@ -5,7 +5,8 @@ import { client, API_BASE } from '../api/client'
 export default function SystemStatus() {
   const [comfyLoading, setComfyLoading] = useState(false)
   const [comfyStatus, setComfyStatus]   = useState('')
-
+  const [llmLoading, setLlmLoading] = useState(false)
+  const [llmStatus, setLlmStatus] = useState('')
   const { data: status } = useQuery({
     queryKey: ['system-status'],
     queryFn: () => client.get('/api/system/status').then(r => r.data),
@@ -17,6 +18,12 @@ export default function SystemStatus() {
     queryFn: () => client.get('/api/system/vram').then(r => r.data),
     refetchInterval: 1000,
     enabled: !!status?.sd,
+  })
+  const { data: llmVram } = useQuery({
+    queryKey: ['llm-vram'],
+    queryFn: () => client.get('/api/system/ollama/vram').then(r => r.data),
+    refetchInterval: 1000,
+    enabled: !!status?.llm,
   })
 
   const [comfyStatusText, setComfyStatusText] = useState('')
@@ -72,9 +79,39 @@ export default function SystemStatus() {
   async function unloadComfyModel() {
     await client.post('/api/system/comfy/unload')
   }
+  async function toggleLlm() {
+    setLlmLoading(true)
+    if (status?.llm) {
+      setLlmStatus('stopping')
+      await client.post('/api/system/ollama/kill')
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 500))
+        const res = await client.get('/api/system/status')
+        if (!res.data.llm) break
+      }
+    } else {
+      setLlmStatus('starting')
+      await client.post('/api/system/ollama/start')
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 1000))
+        const res = await client.get('/api/system/status')
+        if (res.data.llm) break
+      }
+    }
+    setLlmLoading(false)
+    setLlmStatus('')
+  }
 
+  async function unloadLlmModel() {
+    await client.post('/api/system/ollama/unload-model', null, { params: { model: 'sorc/qwen3.5-instruct-heretic:9b' } })
+  }
   const sdColor = !status?.sd ? 'var(--danger)' : 'var(--success)'
-  const llmColor = !status?.llm ? 'var(--danger)' : 'var(--success)'
+  const llmModelLoaded = !!llmVram?.model
+  const llmColor = !status?.llm
+    ? 'var(--danger)'
+    : llmModelLoaded
+      ? 'var(--success)'
+      : 'var(--gold-chip)'
   const vramColor = vram
     ? vram.percent > 90 ? 'var(--danger)'
     : vram.percent > 70 ? '#f0a040'
@@ -84,9 +121,16 @@ export default function SystemStatus() {
   return (
     <div style={{ marginLeft: 'auto', display: 'flex', gap: 16, alignItems: 'center', fontSize: 12 }}>
 
-      <span style={{ color: vramColor, fontWeight: 600 }}>
-        {vram ? `VRAM ${vram.percent}% (${vram.used_gb}G / ${vram.total_gb}G)` : 'VRAM -'}
-      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', fontSize: 11, lineHeight: 1.5 }}>
+        <span style={{ color: vramColor, fontWeight: 600 }}>
+          SD: {vram ? `${vram.percent}% (${vram.used_gb}G / ${vram.total_gb}G)` : '-'}
+        </span>
+        <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>
+          LLM: {llmVram && vram?.total_gb
+            ? `${Math.round(llmVram.used_gb / vram.total_gb * 100)}% (${llmVram.used_gb}G / ${vram.total_gb}G)`
+            : status?.llm ? '언로드됨' : '-'}
+        </span>
+      </div>
 
       <span onClick={toggleComfy} style={{ cursor: comfyLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
         title={status?.sd ? 'ComfyUI 종료' : 'ComfyUI 시작'}>
@@ -114,10 +158,27 @@ export default function SystemStatus() {
         모델 언로드
       </button>
 
-      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <span onClick={toggleLlm} style={{ cursor: llmLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+        title={
+        !status?.llm
+          ? 'Ollama 시작'
+          : llmModelLoaded
+            ? `Ollama 종료 (모델 로드됨: ${llmVram.model})`
+            : 'Ollama 종료 (서버만 실행 중, 모델 언로드 상태)'
+      }>
         <span className="status-dot" style={{ background: llmColor }} />
         <span style={{ color: llmColor }}>LLM</span>
       </span>
+
+      {llmLoading && (
+        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+          {llmStatus === 'starting' ? '⏳ 시작 중...' : '⏳ 종료 중...'}
+        </span>
+      )}
+
+      <button className="btn btn-ghost" onClick={unloadLlmModel}>
+        모델 언로드
+      </button>
     </div>
   )
 }

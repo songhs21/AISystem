@@ -21,6 +21,9 @@ export const sdApi = {
   upscaleUrl: () => `${API_BASE}/api/sd/upscale`,
   i2iUrl: () => `${API_BASE}/api/sd/i2i`,
   i2iMaskUrl: () => `${API_BASE}/api/sd/i2i-mask`,
+  i2vUrl: () => `${API_BASE}/api/sd/i2v`,
+  activeJobs: (kind = 'i2v') => client.get('/api/sd/jobs/active', { params: { kind } }),
+  jobStreamUrl: (jobId) => `${API_BASE}/api/sd/jobs/${jobId}/stream`,
 }
 
 // ── 히스토리 ──────────────────────────────────────────────
@@ -47,8 +50,34 @@ export const inpaintApi = {
   runUrl: () => `${API_BASE}/api/inpaint/run`,
 }
 
-// ── 시스템 ────────────────────────────────────────────────
+// ── LLM ───────────────────────────────────────────────────
 
+export const llmApi = {
+  sessions: () => client.get('/api/llm/sessions'),
+  createSession: (model) => client.post('/api/llm/sessions', null, { params: { model } }),
+  history: (sessionId) => client.get(`/api/llm/history/${sessionId}`),
+  chat: (message, sessionId, model, opts = {}) =>
+    client.post('/api/llm/chat', {
+      message,
+      session_id: sessionId,
+      model,
+      image_path: opts.imagePath || null,
+      use_history_images: opts.useHistoryImages || false,
+      max_history_images: opts.maxHistoryImages ?? 2,
+    }, { timeout: 300000 }),
+  deleteSession: (sessionId) => client.delete(`/api/llm/sessions/${sessionId}`),
+  renameSession: (sessionId, title) => client.patch(`/api/llm/sessions/${sessionId}`, { title }),
+  chatStreamUrl: () => `${API_BASE}/api/llm/chat-stream`,
+}
+
+export const ollamaApi = {
+  start: () => client.post('/api/system/ollama/start'),
+  kill: () => client.post('/api/system/ollama/kill'),
+  vram: () => client.get('/api/system/ollama/vram'),
+  unloadModel: (model) => client.post('/api/system/ollama/unload-model', null, { params: { model } }),
+}
+
+// ── 시스템 ────────────────────────────────────────────────
 export const systemApi = {
   status: () => client.get('/api/system/status'),
   switch: (mode, llm_model = 'qwen3:14b') =>
@@ -59,3 +88,4 @@ export const systemApi = {
     return client.post('/api/system/upload', form)
   },
 }
+

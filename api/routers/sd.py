@@ -17,9 +17,11 @@ from functools import lru_cache
 import uuid
 from typing import Annotated
 from fastapi import File, UploadFile, Form
-
+import time as _time
+from core.system.notify import notify
 router = APIRouter(prefix="/api/sd", tags=["sd"])
-
+from core.system.notify import notify
+from core.system import jobs
 
 # ── 유틸 ──────────────────────────────────────────────────
 
@@ -320,3 +322,99 @@ async def i2i_mask(
 @router.get("/loras")
 def list_loras():
     return {"loras": get_local_loras()}
+
+# ── I2V ───────────────────────────────────────────────────
+
+class I2VRequest(BaseModel):
+    image_path: str
+    prompt:     str   = ""
+    negative:   str   = ""
+    seed:       int   = -1
+    width:      int   = 832
+    height:     int   = 480
+    length:     int   = 81
+    high_steps: int   = 2
+    low_steps:  int   = 3
+    cfg:        float = 1.0
+    frame_rate: int   = 10
+
+
+@router.post("/i2v")
+def i2v(req: I2VRequest):
+    """
+    I2V — 백그라운드 작업 시작
+    즉시 {"job_id": str} 반환. 진행 상황은 GET /jobs/{job_id}/stream 으로 수신.
+    """
+    from core.video.i2v_generate import run_i2v
+
+    job_id = jobs.create_job("i2v")
+
+    def worker():
+        t0 = _time.time()
+        try:
+            for event in run_i2v(
+                req.image_path,
+                prompt=req.prompt,
+                negative=req.negative,
+                seed=req.seed,
+                width=req.width,
+                height=req.height,
+                length=req.length,
+                high_steps=req.high_steps,
+                low_steps=req.low_steps,
+                cfg=req.cfg,
+                frame_rate=req.frame_rate,
+            ):
+                if event["type"] == "progress":
+                    jobs.update_progress(job_id, event["value"], event["text"])
+                elif event["type"] == "done":
+                    jobs.finish_job(job_id, {"video_path": event["video_path"]})
+                    notify("I2V 완료", os.path.basename(event["video_path"]), _time.time() - t0)
+        except Exception as e:
+            jobs.fail_job(job_id, str(e))
+            notify("I2V 실패", str(e), _time.time() - t0, ok=False)
+
+    threading.Thread(target=worker, daemon=True).start()
+    return {"job_id": job_id}
+
+# !!active가 stream보다 위에 존재해야함.
+@router.get("/jobs/active")
+def active_jobs(kind: str = "i2v"):
+    """진행 중이거나 최근 끝난 작업 목록 (최신순)"""
+    return {"jobs": jobs.list_jobs(kind=kind)}
+
+
+@router.get("/jobs/{job_id}/stream")
+def job_stream(job_id: str):
+    """
+    작업 상태 SSE 스트림 — 재연결 가능
+    event: progress → {"value": float, "text": str}
+    event: done     → {"video_path": str}
+    event: error    → {"message": str}
+    """
+    import time as _t
+
+    def stream():
+        last = None
+        while True:
+            job = jobs.get_job(job_id)
+            if job is None:
+                yield f"event: error\ndata: {json.dumps({'message': '작업을 찾을 수 없음'})}\n\n"
+                return
+
+            snapshot = (job["progress"], job["text"], job["status"])
+            if snapshot != last:
+                last = snapshot
+                if job["status"] == "running":
+                    yield f"event: progress\ndata: {json.dumps({'value': job['progress'], 'text': job['text']})}\n\n"
+
+            if job["status"] == "done":
+                yield f"event: done\ndata: {json.dumps(job['result'])}\n\n"
+                return
+            if job["status"] == "error":
+                yield f"event: error\ndata: {json.dumps({'message': job['error']})}\n\n"
+                return
+
+            _t.sleep(0.5)
+
+    return StreamingResponse(stream(), media_type="text/event-stream")

@@ -234,7 +234,7 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 - 엔터 직접 추가는 "텍스트 모드랑 왔다갔다 해야 해서 불편"한 실사용 문제 해소. - 전체 통합 검색은 "JSON 태그들을 완전히 내가 구성한 게 아니라서 어디 들어있는지 헷갈릴 때가 있다"는 필요에서 추가.
 
 ```
-#### 변경 파일: GeneratePage.jsx (import Fuse, buildFuse(), allTagsFlat, globalResults, 검색창 + 후보 목록 블록 전체 교체), package.json (fuse.js 의존성 추가)
+변경 파일: GeneratePage.jsx (import Fuse, buildFuse(), allTagsFlat, globalResults, 검색창 + 후보 목록 블록 전체 교체), package.json (fuse.js 의존성 추가)
 ```
 
 ## v1.2.0 I2I 모드 추가
@@ -416,3 +416,260 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 - 변경: FeedbackEditorPanel 태그 목록 div overflow hidden → minHeight:0 추가로 스크롤 정상화
 - 문제/배경: TagPanel 영역에 스크롤이 안 됨
 - 변경 파일: src/pages/HistoryPage.jsx
+
+### 27. I2V 생성 + V2V 인페인팅 파이프라인 (v1.3.0)
+
+- 변경
+  - `core/video/i2v_generate.py`: 이미지→비디오 생성 (Wan2.1 I2V 14B GGUF, `run_i2v()` SSE 제너레이터)
+  - `core/video/v2v_inpainting.py`: 영상 프레임 단위 의류/부위 교체 인페인팅 파이프라인
+    - 감지: BiRefNet(ONNX, 캐릭터 분리) → GroundingDINO(부위 탐지, dress/hand/arm/face) → SAM(정밀 마스크)
+    - 마스크 병합: IoU 기반 Union-Find로 겹치는 부위 마스크 통합
+    - 생성: 크롭 → IPAdapter(원본 프레임을 참조 이미지로) → ComfyUI 인페인팅 워크플로우 → 언샤프 블렌딩
+    - 프레임 추출/합성: OpenCV + ffmpeg
+  - `api/routers/sd.py`: `/api/sd/i2v` 엔드포인트로 I2V 생성 연동 (SSE progress/done)
+  - `assets/workflow/i2v_workflow.json`: WanImageToVideo 기반 I2V 워크플로우 (GGUF 로더, CLIP Vision 인코딩 포함)
+
+- 문제·배경
+  - Phase 로드맵상 정지 이미지 생성 다음 단계인 영상 생성/편집 착수
+  - ComfyUI 노드 그래프 상에서 장기간 시행착오(파라미터, 워크플로우 구조 실험) 후, 동작 확인된 방식을 코드로 편입
+
+- 결정
+  - I2V: Wan2.1 14B 720p GGUF(Q4_K_M) 모델 채택, 해상도는 32배수 정렬 + 패딩으로 입력 이미지 보정
+  - V2V 인페인팅: 프레임별 2-패스 처리 — 1패스 감지(모델 로드 후 전체 프레임 마스크 추출, 이후 언로드), 2패스 인페인팅(ComfyUI 반복 호출) — VRAM 확보 목적
+  - IPAdapter를 원본 프레임 자체를 참조 이미지로 사용해 프레임 간 일관성 확보
+  - 인페인팅 시드 고정(42)으로 프레임 간 통일성 확보
+
+- 대안 (시행착오 경과)
+  - VACE 모델 사용 → 소형 모델의 경우 인페인팅 영향도가 낮아 기각, 대형 모델의 경우 사양 부족으로 기각
+  - RMBG 세그먼트 기반 부위별 마스크 자동화 → 마스크 인식률이 낮아 기각, SAM으로 전환
+  - SAM 부위별 마스크 → 동작은 하나 손처럼 상대적으로 작은 부위를 인식 못하는 문제 발생
+  - 해결책: 입력 이미지에서 배경 제거 후 이미지 사이즈를 키워 손 인식률 확보
+  - 부위별 개별 인페인팅 시도 → 마스크 경계마다 노이즈 발생, 프레임 퀄리티 저하
+  - 해결책: 마스크를 통합해 프레임당 한 번의 인페인팅으로 처리 → 퀄리티 유지 (현재 채택된 IoU 기반 마스크 병합 로직의 근거)
+  - 이후 IPAdapter, 템포럴 일관성 등 프레임 간 통일성 확보 기법 추가 적용
+
+- 변경 파일
+  - 신규: `core/video/i2v_generate.py`, `core/video/v2v_inpainting.py`, `assets/workflow/i2v_workflow.json`
+  - 수정: `api/routers/sd.py` (`/i2v` 엔드포인트 추가)
+
+- 미해결 (다음 마일스톤 — v1.3.x 또는 이후)
+  - 색상 캐스트 (배경색이 VAE 인코딩에 섞여듦 — 크롭 전 배경 중립화 필요)
+  - `ImageUncropByMask` 경계부 색 번짐(chromatic aberration 유사 아티팩트)
+  - 손 복구 파이프라인 미구현 (A/B/C안 중 미선택 — Optical Flow 기반 C안 유력)
+  - CUDA DLL 수동 등록 블록 메인 엔트리포인트 미통합
+  - `v2v_pipeline.py`(01-test 실험용) 잔존 여부 확인 필요 — `v2v_inpainting.py`와 중복/구버전 가능성
+
+### 28. 로컬 LLM 통합 (Ollama) (v1.4.0)
+
+- 변경
+  - Ollama 기반 로컬 LLM 채팅 기능 신규 추가
+  - `core/llm_db.py`: 채팅 전용 별도 SQLite DB (`llm_chat.db`) — `chat_sessions`, `chat_messages` 테이블
+  - `api/routers/llm.py`: `/api/llm/chat`, `/api/llm/sessions` (생성/목록/삭제/수정), `/api/llm/history/{id}`
+  - `core/system/ollama_manager.py`: Ollama 프로세스 start/kill, `/api/ps` 기반 VRAM 조회
+  - `api/routers/system.py`: `/api/system/ollama/start`, `/kill`, `/vram`, `/unload-model` 추가, `/status`의 llm 체크를 `is_ollama_alive()`로 교체
+  - `config/PATH.py`: `LLM_DB_PATH`, `OLLAMA_APP_PATH` 추가
+  - `src/pages/LLMPage.jsx`: 세션 목록(생성/전환/삭제/제목 수정), 메시지별 소요시간(초) 표기, FastAPI 경유로 전면 교체 (기존 Ollama 직접 호출 방식 제거)
+  - `src/api/client.js`: `llmApi`, `ollamaApi` 추가
+  - `src/components/SystemStatus.jsx`: SD/LLM VRAM 두 줄 표시, LLM 상태 3단계 색상(꺼짐/서버만 켜짐·모델 언로드/모델 로드됨), LLM start/kill 토글 + 모델 언로드 버튼
+
+- 문제·배경
+  - Phase 5 계획에 있던 로컬 LLM(day-to-day 채팅용) 착수
+  - 용도: 범용 대화, 코딩 보조, 추후 SD 프롬프트 검색/추천/번역, Live2D 컴패니언 확장의 기반
+
+- 결정
+  - 서빙 백엔드: Ollama (FastAPI 연동 용이성, RTX 5070 Ti 16GB에서 14B 4bit 여유)
+  - 모델: `qwen2.5:14b` (Q4_K_M) — 한국어 품질 + 코딩 보조 + 범용 대화 균형
+  - 채팅 DB: 이미지 생성 DB(`data.db`)와 별도 파일(`llm_chat.db`)로 분리, 필요시 애플리케이션 레벨에서 조인/캐시하는 방식으로 확장 예정
+  - 세션 관리: `chat_sessions` 단위로 분리, 세션별 삭제/제목 수정 가능
+  - 응답 방식: 스트리밍 대신 일반 응답 채택 (완료까지 총 소요시간은 동일, 소요시간 텍스트 표기로 대체) — 추후 필요시 재검토
+  - LLM VRAM 표시: Ollama `/api/ps`로 로드된 모델 기준 개별 조회, GPU 총 용량은 ComfyUI `system_stats` 값을 공유해서 퍼센트 계산
+  - LLM start/kill: Ollama 프로세스(`ollama.exe`, `ollama app.exe`) 자체를 종료/재실행하는 방식 (서비스 등록 아님, 시작프로그램에 등록되어 있음을 확인)
+
+- 대안
+  - LLM 서빙: vLLM, LM Studio 검토 후 기각 (1인 로컬 사용에 오버스펙이거나 API 연동이 Ollama보다 번거로움)
+  - VRAM 표시: GPU 전체 사용량 통합 표시(`nvidia-smi` 기반) 검토했으나, SD/LLM 개별 정확도를 우선해 각 프로세스 자체 기준으로 결정
+
+- 변경 파일
+  - 신규: `core/llm_db.py`, `api/routers/llm.py`, `core/system/ollama_manager.py`
+  - 수정: `api/main.py`, `config/PATH.py`, `api/routers/system.py`, `src/pages/LLMPage.jsx`, `src/api/client.js`, `src/components/SystemStatus.jsx`
+
+- 미해결 (다음 마일스톤)
+  - `start_ollama()` 콘솔 창 숨김(`CREATE_NO_WINDOW`) 반영 확인
+  - 타임아웃(현재 300초) — ComfyUI 동시 구동 시 응답 지연 대응 여부 재검토
+  - 실제 통합 테스트 (세션 생성/삭제/수정, VRAM 3단계 전환, start/kill 토글) 미완료
+  - SD 프롬프트 검색/추천/번역 기능 연동 (미착수)
+  - Live2D 컴패니언 확장 (장기, 미착수)
+
+  ### 29. 로컬 LLM 통합 (Ollama) (v1.4.0)
+
+- 변경
+  - Ollama 기반 로컬 LLM 채팅 신규 추가
+  - `core/llm_db.py`: 채팅 전용 별도 SQLite DB(`llm_chat.db`), `chat_sessions` / `chat_messages`(`image_path` 컬럼 포함)
+  - `api/routers/llm.py`
+    - `/api/llm/chat`(일반 응답), `/api/llm/chat-stream`(SSE 스트리밍, `token`/`done`/`error` 이벤트)
+    - 세션 생성/목록/삭제/제목 수정, 히스토리 조회(`elapsed_ms`, `image_path` 포함)
+    - 이미지 첨부(base64 인코딩 후 Ollama `images` 필드로 전달), 이전 이미지 문맥 포함 on/off 및 최대 장수 제한
+    - 스트리밍 중 연결이 끊겨도 그때까지 생성된 부분 응답을 DB에 저장
+  - `core/system/ollama_manager.py`: Ollama 프로세스 start/kill, 생존 확인, `/api/ps` 기반 VRAM 조회
+  - `api/routers/system.py`: `/ollama/start`, `/kill`, `/vram`, `/unload-model` 추가, `/status`의 llm 체크를 `is_ollama_alive()`로 교체
+  - `config/PATH.py`: `LLM_DB_PATH`, `OLLAMA_APP_PATH` 추가
+  - `src/pages/LLMPage.jsx`
+    - 세션 목록(생성/전환/삭제/제목 수정), 신규 세션 버튼 중복 클릭 방지
+    - 답변별 소요시간 표기, 스트리밍 실시간 출력 및 중단 버튼
+    - 이미지 첨부 3방식: 파일 선택, 클립보드 붙여넣기, 드래그앤드롭 + 생성 탭 히스토리 이미지 피커
+    - 세션 복원 시 첨부 이미지 썸네일 표시
+    - 기존 Ollama 직접 호출 방식 제거, FastAPI 경유로 전환
+  - `src/api/client.js`: `llmApi`, `ollamaApi` 추가
+  - `src/components/SystemStatus.jsx`: SD/LLM VRAM 두 줄 표시, LLM 상태 3단계 색상(꺼짐 / 서버만 켜짐·모델 언로드 / 모델 로드됨), LLM start·kill 토글, 모델 언로드 버튼
+  - `src/styles/global.css`: `100vh`를 `100dvh`로 보완 (안드로이드 브라우저 주소 표시줄 표시/숨김 시 화면 하단 잘림 해소)
+
+- 문제·배경
+  - Phase 5의 로컬 LLM 착수. 용도는 범용 대화, 코딩 보조, SD 프롬프트 검색/추천/번역, 이미지 입력 기반 I2V 프롬프트 생성, 장기적으로 Live2D 컴패니언 확장
+  - 기존 `LLMPage.jsx`는 브라우저에서 Ollama를 직접 호출하고 세션·기록 개념이 없었음
+  - 세션 생성 버튼에 반응 피드백이 없어 연속 클릭으로 세션이 여러 개 생성되는 문제 발생
+  - ComfyUI 영상 생성 중 채팅 시 응답이 느려짐(GPU 경합)
+
+- 결정
+  - 서빙: Ollama (FastAPI 연동 용이, 1인 로컬 사용에 적합)
+  - 모델: 초기 `qwen2.5:14b`로 설치 후, 검열 해제 및 이미지 분석 용도로 `sorc/qwen3.5-instruct-heretic:9b`(비전 지원)로 교체. 이미지 분석 품질 등을 보고 14B급 추가 검토
+  - 채팅 DB는 이미지 생성 DB(`data.db`)와 별도 파일로 분리. 필요 시 애플리케이션 레벨에서 조인, 부하가 크면 캐시로 확장
+  - 세션 단위로 대화 분리
+  - 소요시간은 답변 완료 후 총 시간(초)으로 표기
+  - LLM VRAM은 Ollama `/api/ps`로 로드된 모델 기준 개별 조회, 총 VRAM은 ComfyUI `system_stats` 값을 공유해 퍼센트 계산
+  - LLM start/kill은 Ollama 프로세스(`ollama.exe`, `ollama app.exe`) 종료/재실행. 시작프로그램 등록으로 서비스가 아님을 확인. 트레이 앱이라 콘솔 로그가 없어 창은 숨김 처리(`CREATE_NO_WINDOW`)
+  - 이미지 첨부는 파일 복사 없이 경로만 DB에 기록. 붙여넣기·드롭 이미지는 기존 `/api/system/upload` 재사용, 히스토리 이미지는 원본 `image_path` 참조
+  - 이전 이미지의 문맥 포함은 사용자가 on/off 및 최대 장수를 조절(기본 off, 최대 2장)
+  - 스트리밍은 기존 `/chat`을 유지한 채 `/chat-stream`을 신규 추가해 롤백 가능하게 구성, 프론트는 `useSSE` 훅 수정 없이 `LLMPage`에서 `fetch`로 직접 수신
+  - 스트리밍 중 끊김 시 부분 응답도 저장
+
+- 사용자 제안 (직접 낸 아이디어)
+  - 채팅 DB를 이미지 DB와 분리하고, 부하가 크면 캐시로 들고 있다가 DB 변경 시 갱신하는 방식으로 확장
+  - LLM 서비스도 SD처럼 VRAM 표시, 모델 언로드, start/kill 토글과 진행 표시를 두는 구조 제안
+  - VRAM 표시를 SD/LLM 윗줄·아랫줄로 구분
+  - 서버는 켜져 있으나 모델이 언로드된 상태를 노랑/주황색으로 구분하는 3단계 상태 표시 (Claude가 3단계 구조를 제시했고 색상 구분은 사용자가 확정)
+  - 이전 이미지 참조를 요청별로 on/off, 안 되면 횟수 상한으로 제어하자는 요구
+  - 이미지 입력 방식을 파일 선택 + 붙여넣기 + 드래그앤드롭으로 확장, 별도 파일 저장 없이 기존 히스토리 피커 재사용
+  - 스트리밍 중 끊겨도 부분 응답 저장
+
+- 대안
+  - LLM 서빙: vLLM, LM Studio 검토 후 기각 (1인 로컬 사용에 오버스펙이거나 API 연동이 번거로움)
+  - VRAM 표시: GPU 전체 사용량 통합 표시(`nvidia-smi` 기반) 검토 후 각 프로세스 자체 기준으로 결정
+  - 모델: 검열 해제 방식으로 abliterated와 uncensored 파인튜닝(Dolphin, Hermes 계열) 비교. 한국어 품질 유지를 위해 Qwen 계열 베이스 우선
+  - 스트리밍 수신: `useSSE` 훅 확장 검토 후 기각 (다른 곳에서 쓰는 훅에 부작용 위험)
+  - 이미지 저장: 별도 파일 저장 방식 검토 후 기각 (기존 경로 재사용으로 충분)
+  - DB 마이그레이션: `PRAGMA` 기반 코드 마이그레이션 대신 1회 수동 쿼리 + `CREATE TABLE`에 컬럼 추가로 진행
+
+- 변경 파일
+  - 신규: `core/llm_db.py`, `api/routers/llm.py`, `core/system/ollama_manager.py`
+  - 수정: `api/main.py`, `config/PATH.py`, `api/routers/system.py`, `src/pages/LLMPage.jsx`, `src/api/client.js`, `src/components/SystemStatus.jsx`, `src/styles/global.css`
+
+- 미해결 (다음 마일스톤)
+  - 히스토리 이미지 피커를 `LLMPage.jsx` 안에 임시로 정의해 둔 상태, 공용 컴포넌트로 분리 필요 (생성 탭 쪽 정의와 함께 정리)
+  - I2V 프롬프트 생성 전용 시스템 프롬프트/프리셋 미구현 (현재는 매번 직접 요청)
+  - SD 프롬프트 검색/추천/번역 연동 미구현
+  - 세션별 모델 선택 UI 없음 (현재 서버 `DEFAULT_MODEL` 고정), 기존 세션의 표시 모델명이 옛 값으로 남을 수 있음
+  - 14B급 모델 추가 여부 결정 (이미지 분석 품질과 VRAM 여유 비교 필요)
+  - thinking 모드 사용 시 `<think>` 블록 노출 여부 미확인
+  - 스트리밍 중 중단 시 부분 응답 저장 동작의 실측 확인 필요
+  - LLM VRAM 퍼센트가 ComfyUI 생존에 의존 (ComfyUI가 꺼져 있으면 `-` 표시), GPU 총 용량을 별도로 구하는 방식 미결정
+  - ComfyUI 동시 구동 시 채팅 응답 지연 및 타임아웃(현재 300초) 대응 여부 결정
+  - `start_ollama()`의 `CREATE_NO_WINDOW` 반영 여부 확인
+  - `/api/system/image`, `/video`에 경로 검증이 없음 (임의 경로 읽기 가능, 로컬 전용이라 우선순위 낮음)
+  - `system.py`의 `SwitchRequest`, `client.js`의 `systemApi.switch`에 남은 옛 모델명(`qwen3:14b`) 정리
+  - 미사용이 된 `/api/llm/chat`(비스트리밍)과 `llmApi.chat` 유지 여부 결정
+  - Live2D 컴패니언 확장 (장기)
+
+
+### 30. GeneratePage 모드별 함수 분리 및 레이아웃 개편 (v1.5.0)
+
+- 변경
+  - `GeneratePage.jsx`를 드롭박스(`DropdownModePanel`)/i2i(`I2iModePanel`)/비디오(`VideoModePanel`) 세 개의 독립 함수 컴포넌트로 분리
+  - 레이아웃을 상단 고정 바 방식에서, 뷰포트를 중심에 두고 왼쪽에 생성 옵션 서랍(오버레이, 뷰포트를 밀지 않음), 오른쪽에 태그 패널(뷰포트를 밀어냄)을 두는 구조로 변경
+- 문제/배경
+  - 새로고침 시 i2v 입력값 유지 로직을 작성하던 중, `negative` 등 동일한 이름의 state가 `GeneratePage`와 `VideoModePanel` 두 스코프에 따로 존재해 혼동 발생
+  - 저장/복원 로직을 실수로 `GeneratePage`에 작성해 실제 입력 필드(`VideoModePanel` 소유)에 반영되지 않는 문제 발견
+  - 기존 레이아웃(결과 미리보기 좌측 세로 배치)은 정사각형 결과 이미지가 잘리거나 옵션 UI가 한 화면에 안 들어오는 문제가 있었음
+- 결정
+  - 모드별 state를 각자의 함수 컴포넌트 스코프로 캡슐화
+  - 공유 state(`checkpoint`, `result`, `meta`, `i2iOverlay`, `showHistoryPicker`, job 관련 상태)만 `GeneratePage`에 유지하고 props로 하위 전달
+  - 레이아웃은 뷰포트 중심 + 좌측 오버레이 서랍(옵션) + 우측 밀림형 패널(태그)로 변경
+- 이유
+  - state 스코프를 명확히 분리하면 동일 이름 변수로 인한 혼동을 원천 차단할 수 있음
+  - 오버레이형 서랍은 뷰포트 크기를 최대한 보존하면서도 옵션을 언제든 접근 가능하게 함
+- 대안
+  - 옵션 패널을 상단 고정 바로 유지하고 이미지 비율만 조정하는 방식도 검토했으나, 옵션이 많아 한 화면에 안 들어오는 문제가 근본적으로 해결되지 않아 기각
+- 변경 파일: `src/pages/GeneratePage.jsx`
+
+### 31. LoRA 모드별 지역화 및 폴더 공유 이슈 확인 (v1.5.0)
+
+- 변경
+  - LoRA 선택(`loraName`, `loraStrength`) UI를 드롭박스/i2i/비디오 세 모드 각각에 독립적으로 노출
+  - LoRA 목록 조회(`sdApi.loras()`)는 각 패널에서 개별 호출(react-query 캐시로 중복 요청 없음)
+- 문제/배경
+  - 기존엔 드롭박스 모드에만 LoRA UI가 있었음
+  - 확장 과정에서 이미지(SDXL)용과 동영상(Wan) LoRA가 동일한 `LORA_DIR` 폴더를 공유하고 있다는 사실 확인 — 두 아키텍처는 LoRA 레이어 구조가 달라 호환되지 않을 가능성이 높음
+- 결정
+  - 지금은 폴더 분리 없이 모드별 UI만 노출. 폴더 분리는 추후 과제로 보류
+- 이유
+  - 당장 기능 확장에 폴더 분리가 필수는 아니며, 실제 비호환 여부를 검증한 뒤 분리하는 것이 효율적
+- 변경 파일: `src/pages/GeneratePage.jsx`
+
+### 32. i2v 워크플로우 High/Low 듀얼 KSampler 전환 (v1.5.0)
+
+- 변경
+  - `core/video/i2v_generate.py`의 `run_i2v`를 단일 모델/단일 KSampler 구조에서 High/Low 듀얼 GGUF 로더 + `KSamplerAdvanced` 2단 구조로 변경
+  - `api/routers/sd.py`의 `I2VRequest`를 `steps`/`cfg`/`denoise` 대신 `high_steps`/`low_steps`/`cfg` 필드로 변경
+- 문제/배경
+  - Wan 2.2 기반 파인튜닝 모델(Lightning Edition 등)이 High-noise/Low-noise 두 체크포인트로 배포되며, 단일 모델로 전체 스텝을 처리하면 결과가 붕괴(형체 소실, 모자이크성 노이즈)됨
+  - 초기엔 바닐라 Wan 2.1 기준 워크플로우(steps 25, cfg 5.5)를 그대로 쓰다가 과노출 문제 발생 → steps/cfg를 낮추며 원인을 좁혀가다 High/Low 분리 필요성 확인
+- 결정
+  - GGUF 로더 2개(High/Low) + `KSamplerAdvanced` 2개를 순차 연결(High의 LATENT 출력 → Low의 latent_image 입력)하는 구조로 전환
+  - 프론트에서 `high_steps`/`low_steps`를 각각 입력받아 최종 `steps`(합산)와 `start_at_step`/`end_at_step`으로 변환
+- 이유
+  - Wan 2.2 파인튜닝 모델의 표준 사용 방식이 High/Low 분리 샘플링이며, 이를 따르지 않으면 모델 자체가 정상 동작하지 않음
+- 변경 파일: `core/video/i2v_generate.py`, `api/routers/sd.py`, `assets/workflow/i2v_workflow.json`, `src/pages/GeneratePage.jsx`
+
+### 33. i2v 입력 새로고침 유지 (v1.5.0)
+
+- 변경
+  - `VideoModePanel`의 입력값(baseImage, prompt, negative, seed, width, height, length, highSteps, lowSteps, cfg, loraName, loraStrength)을 `localStorage`의 `i2vDraft` 키에 객체로 통합 저장. 마운트 시 자동 복원
+- 문제/배경
+  - 새로고침 시 i2v 탭의 입력값이 전부 초기화됨
+- 결정
+  - t2i 모드(`dropSelections` 등)가 쓰던 개별 `useEffect` + localStorage 패턴 대신, 여러 필드를 객체 하나로 묶어 단일 `useEffect`로 저장/복원
+- 이유
+  - 필드 수가 많아 개별 관리 시 코드량이 늘어남. t2i 쪽도 추후 동일 패턴으로 통합 예정
+- 변경 파일: `src/pages/GeneratePage.jsx`
+
+### 34. 태그 패널/왼쪽 서랍 상호작용 버그 수정 (v1.5.0)
+
+- 변경
+  - 왼쪽 서랍을 닫아도 오른쪽 태그 패널이 함께 사라지는 문제 수정
+  - 이미지 생성 시작 시 태그 패널이 닫히지 않고 이전 상태가 유지되는 문제 수정
+  - 최종 프롬프트 미리보기의 태그 칩 영역이 고정 높이(`maxHeight: 80`)로 잘리는 문제 수정
+- 문제/배경
+  - `DropdownModePanel` 내부에 태그 패널 UI와 관련 state(`tags`, `tagPanelOpen` 등)가 중복 선언되어 있었고, 이 중복 패널이 왼쪽 서랍 DOM 안에 위치해 있어 서랍이 `display: none`이 되면 함께 사라졌음
+  - `generate()` 함수가 `setTagPanelOpen`을 호출할 방법이 없어 새 생성 시작 시 이전 태그 패널 상태(펼침/접힘, 뷰포트 밀림)가 그대로 유지됐음
+  - 카테고리 라벨이 길어 태그 칩이 2줄로 줄바꿈될 때 `overflow` 처리가 없어 내용이 잘림
+- 결정
+  - `DropdownModePanel`의 지역 `tags`/`tagPanelOpen` 등 관련 state와 중복 UI 블록을 전부 제거하고 `GeneratePage`가 소유한 것을 props로 전달받아 사용하도록 통일
+  - `setTagPanelOpen`을 `DropdownModePanel`에 props로 전달, `generate()` 시작 시 `setTagPanelOpen(false)` 호출, 완료 시 `onGenerated` 콜백으로 `setTagPanelOpen(true)` 호출
+  - 태그 칩 컨테이너에 `maxHeight: 150, overflowY: 'auto'` 적용
+- 이유
+  - state는 단일 소유자(`GeneratePage`)만 가져야 중복/동기화 문제가 발생하지 않음
+- 변경 파일: `src/pages/GeneratePage.jsx`
+
+### 35. 왼쪽 서랍 UI 개선 — 스플릿 리사이즈, 파일탭 버튼 (v1.5.0)
+
+- 변경
+  - `DropdownModePanel` 내부에서 상단 헤더(검색/프롬프트 미리보기/LoRA/부정 프롬프트/고급 옵션)와 하단 카테고리 목록을 드래그로 비율 조절 가능한 2단 스플릿 구조로 변경(초기 비율 4:6, 각 단 독립 스크롤)
+  - 왼쪽 서랍 토글 버튼을 화면 좌상단 고정에서, 서랍이 열렸을 때 서랍 오른쪽 가장자리에 붙는 파일탭 형태로 변경
+- 문제/배경
+  - 카테고리 목록이 길어 스크롤이 필요했으나 헤더 영역과 비율 조절이 불가능했음
+  - 토글 버튼이 좌상단에 고정되어 있어 서랍이 열려도 위치가 바뀌지 않아 사용성이 떨어짐
+- 결정
+  - `topRatio` state와 마우스/터치 드래그 핸들러로 두 영역 높이를 15%~85% 범위에서 조절 가능하게 구현
+  - 토글 버튼은 `left` 값을 `leftDrawerOpen` 상태에 따라 0 또는 380(서랍 폭)으로 전환
+- 이유
+  - 파일 탭처럼 서랍에 붙어 이동하는 버튼이 서랍 상태를 직관적으로 보여줌
+- 변경 파일: `src/pages/GeneratePage.jsx`

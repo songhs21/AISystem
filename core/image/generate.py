@@ -95,12 +95,13 @@ def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95, prompt_
 
 
 def _post_workflow(workflow: dict, client_id: str) -> str:
-    """워크플로우 전송 → prompt_id 반환. 검증 실패 시 ValueError."""
     response = requests.post(
         f"{COMFY_URL}/prompt",
         json={"prompt": workflow, "client_id": client_id},
         timeout=5
     )
+    if not response.ok:
+        print(f"ComfyUI 에러 응답: {response.text}")  # 추가
     response.raise_for_status()
     resp = response.json()
     if "prompt_id" not in resp:

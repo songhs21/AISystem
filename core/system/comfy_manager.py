@@ -28,21 +28,27 @@ def start_comfy():
     _comfy_process = subprocess.Popen(
         [PYTHON_EMBEDED, main_py],
         cwd=COMFY_DIR,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        creationflags=subprocess.CREATE_NO_WINDOW
+        creationflags=subprocess.CREATE_NEW_CONSOLE
     )
 
-    # stdout을 별도 스레드에서 읽어 큐에 적재
-    def _read_stdout():
-        for line in _comfy_process.stdout:
-            try:
-                _comfy_log_queue.put(line.decode('utf-8', errors='replace').rstrip())
-            except Exception:
-                break
+    # _comfy_process = subprocess.Popen(
+    #     [PYTHON_EMBEDED, main_py],
+    #     cwd=COMFY_DIR,
+    #     stdout=subprocess.PIPE,
+    #     stderr=subprocess.STDOUT,
+    #     creationflags=subprocess.CREATE_NEW_CONSOLE
+    # )
 
-    import threading
-    threading.Thread(target=_read_stdout, daemon=True).start()
+    # stdout을 별도 스레드에서 읽어 큐에 적재
+    # def _read_stdout():
+    #     for line in _comfy_process.stdout:
+    #         try:
+    #             _comfy_log_queue.put(line.decode('utf-8', errors='replace').rstrip())
+    #         except Exception:
+    #             break
+
+    # import threading
+    # threading.Thread(target=_read_stdout, daemon=True).start()
 
 def get_comfy_log_queue():
     return _comfy_log_queue

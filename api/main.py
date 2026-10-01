@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from core.db import init_db
 from api.routers import sd, history, inpaint, system
+from core.llm_db import init_llm_db
+from api.routers import llm as llm_router
 
 app = FastAPI(title="AISystem")
 
@@ -27,6 +29,7 @@ app.include_router(sd.router)
 app.include_router(history.router)
 app.include_router(inpaint.router)
 app.include_router(system.router)
+app.include_router(llm_router.router)
 
 # 정적 파일 (React 빌드 결과물)
 # app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
@@ -35,6 +38,7 @@ app.include_router(system.router)
 @app.on_event("startup")
 def startup():
     init_db()
+    init_llm_db()
     logging.info("AISystem API 시작")
 
 

@@ -12,7 +12,9 @@ from config.constants import NEGATIVE_BASE
 from pathlib import Path 
 from fastapi import UploadFile, File
 import json
-
+from core.system.ollama_manager import (
+    is_ollama_alive, start_ollama, kill_ollama, wait_for_ollama, get_ollama_vram_info
+)
 router = APIRouter(prefix="/api/system", tags=["system"])
 
 FORGE_URL  = "http://127.0.0.1:8188"
@@ -23,7 +25,7 @@ OLLAMA_URL = "http://localhost:11434"
 
 class SwitchRequest(BaseModel):
     mode: str  # "sd" | "llm"
-    llm_model: str = "qwen3:14b"
+    llm_model: str = "sorc/qwen3.5-instruct-heretic:9b"
 
 
 # ── SD / LLM 스위칭 ───────────────────────────────────────
@@ -93,11 +95,7 @@ def system_status():
     except:
         pass
 
-    try:
-        requests.get(f"{OLLAMA_URL}/api/tags", timeout=2)
-        llm_alive = True
-    except:
-        pass
+    llm_alive = is_ollama_alive()
 
     return {"sd": sd_alive, "llm": llm_alive}
 
@@ -202,26 +200,78 @@ async def upload_image(file: UploadFile = File(...)):
 
     return {"path": save_path, "filename": file.filename}
 
+# @router.get("/comfy/start-stream")
+# def comfy_start_stream():
+#     from core.system.comfy_manager import start_comfy, get_comfy_log_queue, is_comfy_alive
+#     import queue as _queue
+
+#     def stream():
+#         start_comfy()
+#         log_queue = get_comfy_log_queue()
+#         yield f"event: log\ndata: {json.dumps({'text': 'ComfyUI 시작 중...'})}\n\n"
+
+#         while True:
+#             alive = is_comfy_alive()
+#             try:
+#                 line = log_queue.get(timeout=1)
+#                 yield f"event: log\ndata: {json.dumps({'text': line})}\n\n"
+#             except _queue.Empty:
+#                 pass
+
+#             if alive:
+#                 yield f"event: done\ndata: {json.dumps({'text': 'ComfyUI 시작 완료'})}\n\n"
+#                 break
+#     return StreamingResponse(stream(), media_type="text/event-stream")
 @router.get("/comfy/start-stream")
 def comfy_start_stream():
-    from core.system.comfy_manager import start_comfy, get_comfy_log_queue, is_comfy_alive
-    import queue as _queue
+    import time
+    from core.system.comfy_manager import start_comfy, is_comfy_alive
 
     def stream():
         start_comfy()
-        log_queue = get_comfy_log_queue()
         yield f"event: log\ndata: {json.dumps({'text': 'ComfyUI 시작 중...'})}\n\n"
-
-        while True:
-            alive = is_comfy_alive()
-            try:
-                line = log_queue.get(timeout=1)
-                yield f"event: log\ndata: {json.dumps({'text': line})}\n\n"
-            except _queue.Empty:
-                pass
-
-            if alive:
-                yield f"event: done\ndata: {json.dumps({'text': 'ComfyUI 시작 완료'})}\n\n"
-                break
+        while not is_comfy_alive():
+            time.sleep(1)
+        yield f"event: done\ndata: {json.dumps({'text': 'ComfyUI 시작 완료'})}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.get("/video")
+def serve_video(path: str):
+    normalized = os.path.normpath(path)
+    if not os.path.exists(normalized):
+        raise HTTPException(status_code=404, detail=f"파일 없음: {normalized}")
+    
+    mime, _ = mimetypes.guess_type(normalized)
+    with open(normalized, "rb") as f:
+        data = f.read()
+    
+    return Response(
+        content=data,
+        media_type=mime or "video/mp4",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-cache",
+        }
+    )
+
+@router.post("/ollama/start")
+def ollama_start():
+    start_ollama()
+    return {"ok": True}
+
+
+@router.post("/ollama/kill")
+def ollama_kill():
+    kill_ollama()
+    return {"ok": True}
+
+
+@router.get("/ollama/vram")
+def ollama_vram():
+    return get_ollama_vram_info() or {"used_gb": 0, "model": None}
+
+@router.post("/ollama/unload-model")
+def ollama_unload_model(model: str = "sorc/qwen3.5-instruct-heretic:9b"):
+    ok = unload_llm(model)
+    return {"ok": ok}

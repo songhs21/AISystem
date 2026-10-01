@@ -1,0 +1,429 @@
+{
+  "1": {
+    "inputs": {
+      "image": "frame_00070.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Frame"
+    }
+  },
+  "7": {
+    "inputs": {
+      "ckpt_name": "catTowerNoobaiXL_chenkinnoobV12.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load Checkpoint"
+    }
+  },
+  "8": {
+    "inputs": {
+      "ipadapter_file": "ip-adapter_sdxl_vit-h.safetensors"
+    },
+    "class_type": "IPAdapterModelLoader",
+    "_meta": {
+      "title": "Load IP-Adapter"
+    }
+  },
+  "9": {
+    "inputs": {
+      "clip_name": "clip_vision_h.safetensors"
+    },
+    "class_type": "CLIPVisionLoader",
+    "_meta": {
+      "title": "Load CLIP Vision"
+    }
+  },
+  "10": {
+    "inputs": {
+      "image": "frame_00070.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load IPA Reference Image"
+    }
+  },
+  "11": {
+    "inputs": {
+      "weight": 0.9,
+      "weight_type": "linear",
+      "combine_embeds": "concat",
+      "start_at": 0,
+      "end_at": 0.7,
+      "embeds_scaling": "V only",
+      "model": [
+        "7",
+        0
+      ],
+      "ipadapter": [
+        "8",
+        0
+      ],
+      "image": [
+        "10",
+        0
+      ],
+      "clip_vision": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "IPAdapterAdvanced",
+    "_meta": {
+      "title": "Apply IP-Adapter"
+    }
+  },
+  "12": {
+    "inputs": {
+      "text": "wedding_dress, closed_mouth, hairband, huge_breasts, smile, hair_ornament, white_gloves, from_behind, large_breasts, sleeveless_dress, sidelocks, white_flower, sleeveless, ponytail, wavy_hair, petals, hair_flower, shijou_takane, :3, backless_dress, long_hair, dress, blunt_bangs, sideboob, blush, upper_body, looking_back",
+      "clip": [
+        "7",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "13": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "7",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Negative Prompt"
+    }
+  },
+  "15": {
+    "inputs": {
+      "seed": 675330759713532,
+      "steps": 30,
+      "cfg": 6.5,
+      "sampler_name": "euler",
+      "scheduler": "karras",
+      "denoise": 0.25,
+      "model": [
+        "11",
+        0
+      ],
+      "positive": [
+        "12",
+        0
+      ],
+      "negative": [
+        "13",
+        0
+      ],
+      "latent_image": [
+        "44",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "16": {
+    "inputs": {
+      "samples": [
+        "15",
+        0
+      ],
+      "vae": [
+        "7",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "27": {
+    "inputs": {
+      "base_resolution": 1024,
+      "padding": 96,
+      "min_crop_resolution": 256,
+      "max_crop_resolution": 1024,
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "54",
+        0
+      ]
+    },
+    "class_type": "ImageCropByMaskAndResize",
+    "_meta": {
+      "title": "Crop by Mask"
+    }
+  },
+  "28": {
+    "inputs": {
+      "destination": [
+        "1",
+        0
+      ],
+      "source": [
+        "16",
+        0
+      ],
+      "mask": [
+        "27",
+        1
+      ],
+      "bbox": [
+        "27",
+        2
+      ]
+    },
+    "class_type": "ImageUncropByMask",
+    "_meta": {
+      "title": "Uncrop by Mask"
+    }
+  },
+  "29": {
+    "inputs": {
+      "filename_prefix": "v2v_result",
+      "images": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Frame"
+    }
+  },
+  "42": {
+    "inputs": {
+      "method": "hm",
+      "image_output": "Preview",
+      "save_prefix": "ComfyUI",
+      "image_ref": [
+        "1",
+        0
+      ],
+      "image_target": [
+        "28",
+        0
+      ]
+    },
+    "class_type": "easy imageColorMatch",
+    "_meta": {
+      "title": "Image Color Match"
+    }
+  },
+  "44": {
+    "inputs": {
+      "pixels": [
+        "27",
+        0
+      ],
+      "vae": [
+        "7",
+        2
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "45": {
+    "inputs": {
+      "x": 0,
+      "y": 0,
+      "resize_source": false,
+      "destination": [
+        "1",
+        0
+      ],
+      "source": [
+        "42",
+        0
+      ],
+      "mask": [
+        "54",
+        0
+      ]
+    },
+    "class_type": "ImageCompositeMasked",
+    "_meta": {
+      "title": "Soft Blend"
+    }
+  },
+  "46": {
+    "inputs": {
+      "model_name": "sam_vit_b_01ec64.pth",
+      "device_mode": "AUTO"
+    },
+    "class_type": "SAMLoader",
+    "_meta": {
+      "title": "SAM Loader"
+    }
+  },
+  "47": {
+    "inputs": {
+      "model_name": "segm/person_yolov8n-seg.pt"
+    },
+    "class_type": "UltralyticsDetectorProvider",
+    "_meta": {
+      "title": "Person YOLO Detector"
+    }
+  },
+  "48": {
+    "inputs": {
+      "threshold": 0.5,
+      "dilation": 4,
+      "crop_factor": 1,
+      "drop_size": 10,
+      "labels": "all",
+      "bbox_detector": [
+        "47",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "BboxDetectorSEGS",
+    "_meta": {
+      "title": "Person BBox Detector"
+    }
+  },
+  "49": {
+    "inputs": {
+      "detection_hint": "center-1",
+      "dilation": 4,
+      "threshold": 0.93,
+      "bbox_expansion": 0,
+      "mask_hint_threshold": 0.7,
+      "mask_hint_use_negative": "False",
+      "sam_model": [
+        "46",
+        0
+      ],
+      "segs": [
+        "48",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "SAMDetectorCombined",
+    "_meta": {
+      "title": "SAM Person Detector"
+    }
+  },
+  "50": {
+    "inputs": {
+      "model_name": "bbox/hand_yolov8n.pt"
+    },
+    "class_type": "UltralyticsDetectorProvider",
+    "_meta": {
+      "title": "Hand YOLO Detector"
+    }
+  },
+  "51": {
+    "inputs": {
+      "threshold": 0.5,
+      "dilation": 4,
+      "crop_factor": 1,
+      "drop_size": 10,
+      "labels": "all",
+      "bbox_detector": [
+        "50",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "BboxDetectorSEGS",
+    "_meta": {
+      "title": "Hand BBox Detector"
+    }
+  },
+  "52": {
+    "inputs": {
+      "detection_hint": "center-1",
+      "dilation": 4,
+      "threshold": 0.93,
+      "bbox_expansion": 0,
+      "mask_hint_threshold": 0.7,
+      "mask_hint_use_negative": "False",
+      "sam_model": [
+        "46",
+        0
+      ],
+      "segs": [
+        "51",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "SAMDetectorCombined",
+    "_meta": {
+      "title": "SAM Hand Detector"
+    }
+  },
+  "53": {
+    "inputs": {
+      "segs": [
+        "48",
+        0
+      ]
+    },
+    "class_type": "SegsToCombinedMask",
+    "_meta": {
+      "title": "Person Segs to Mask"
+    }
+  },
+  "54": {
+    "inputs": {
+      "segs": [
+        "51",
+        0
+      ]
+    },
+    "class_type": "SegsToCombinedMask",
+    "_meta": {
+      "title": "Hand Segs to Mask"
+    }
+  },
+  "55": {
+    "inputs": {
+      "x": 0,
+      "y": 0,
+      "operation": "or",
+      "destination": [
+        "53",
+        0
+      ],
+      "source": [
+        "54",
+        0
+      ]
+    },
+    "class_type": "MaskComposite",
+    "_meta": {
+      "title": "Combine Person + Hand Masks"
+    }
+  }
+}
