@@ -27,6 +27,11 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { CATEGORY_CONFIG, CATEGORY_ORDER } from '../constants/tagConfig'
+import { dedupeTags } from '../utils/tags'
+import QueueStrip, { itemMeta } from '../components/QueueStrip'
+
+// 오른쪽 태그 패널 폭 (뷰포트 밀림 / 패널 / 토글 버튼 위치에 공통 사용)
+const TAG_PANEL_W = 'max(35%, 320px)'
 
 // ─── 유틸 함수 ───────────────────────────────────────────────────
 function getByPath(obj, path) {
@@ -88,7 +93,7 @@ function PromptTags({ prompt }) {
 }
 
 // ─── 메인 컴포넌트 ───────────────────────────────────────────────
-export default function GeneratePage() {
+export default function GeneratePage({ quote }) {
   const [mode, setMode] = useState('dropdown')
   const [checkpoint, setCheckpoint] = useState('')
   const [result, setResult] = useState(null)
@@ -98,14 +103,44 @@ export default function GeneratePage() {
   const [historyPickerTarget, setHistoryPickerTarget] = useState(null)
   const [leftDrawerOpen, setLeftDrawerOpen] = useState(true)
   const [tagPanelOpen, setTagPanelOpen] = useState(false)
+  const [pendingQuote, setPendingQuote] = useState(null)
 
-  const { progress, statusText, running, error, run } = useSSE()
+  const { progress, statusText, running, error, run: sseRun } = useSSE()
 
   const [jobRunning, setJobRunning]   = useState(false)
   const [jobProgress, setJobProgress] = useState(0)
   const [jobStatus, setJobStatus]     = useState('')
   const [jobError, setJobError]       = useState(null)
   const jobAbortRef = useRef(null)
+  // ── 생성 대기열 (서버 큐 폴링) ──
+  const [queueOpen, setQueueOpen] = useState(true)
+  const [queueActive, setQueueActive] = useState(false)
+  const [selectedId, setSelectedId] = useState(null)
+  const followRef = useRef(true)      // 새로 완료된 항목을 자동으로 보여줄지
+  const seenDoneRef = useRef(null)    // 이미 확인한 완료 항목 id (null = 첫 로드 전)
+
+  const { data: queueData, refetch: refetchQueue } = useQuery({
+    queryKey: ['gen-queue'],
+    queryFn: () => sdApi.queue().then(r => r.data),
+    refetchInterval: queueActive ? 1000 : 5000,
+    staleTime: 0,
+  })
+  const queueItems = queueData?.items || []
+  const activeItem = queueItems.find(i => i.status === 'running' || i.status === 'cancelling')
+  const lastError = [...queueItems].reverse().find(i => i.status === 'error')
+  // 시스템 종료
+  const shutdown = queueData?.shutdown || { armed: false, remaining: 0 }
+  const selectedItem = queueItems.find(i => i.id === selectedId)
+  const showRunningCenter = selectedItem && ['running', 'cancelling'].includes(selectedItem.status)
+
+  // 이미지 생성(SSE) 시작 시 이전 영상 job 상태 초기화
+  const run = useCallback((...args) => {
+    setJobProgress(0)
+    setJobStatus('')
+    setJobError(null)
+    sseReset()
+    return sseRun(...args)
+  }, [sseRun])
 
   // 태그 패널 전용 state (드롭박스 결과에만 사용)
   const [tags, setTags] = useState([])
@@ -155,86 +190,101 @@ export default function GeneratePage() {
     staleTime: Infinity,
   }).data || {}
 
-  async function attachJob(jobId) {
-    if (jobAbortRef.current) jobAbortRef.current.abort()
-    const controller = new AbortController()
-    jobAbortRef.current = controller
+  // async function attachJob(jobId) {
+  //   if (jobAbortRef.current) jobAbortRef.current.abort()
+  //   const controller = new AbortController()
+  //   jobAbortRef.current = controller
 
-    setJobRunning(true)
-    setJobProgress(0)
-    setJobStatus('')
-    setJobError(null)
+  //   setJobRunning(true)
+  //   setJobProgress(0)
+  //   setJobStatus('')
+  //   setJobError(null)
 
-    try {
-      const res = await fetch(sdApi.jobStreamUrl(jobId), { signal: controller.signal })
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let eventType = null
+  //   try {
+  //     const res = await fetch(sdApi.jobStreamUrl(jobId), { signal: controller.signal })
+  //     const reader = res.body.getReader()
+  //     const decoder = new TextDecoder()
+  //     let buffer = ''
+  //     let eventType = null
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop()
+  //     while (true) {
+  //       const { done, value } = await reader.read()
+  //       if (done) break
+  //       buffer += decoder.decode(value, { stream: true })
+  //       const lines = buffer.split('\n')
+  //       buffer = lines.pop()
 
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            eventType = line.slice(7).trim()
-          } else if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6))
-            if (eventType === 'progress') {
-              setJobProgress(data.value)
-              setJobStatus(data.text)
-            } else if (eventType === 'done') {
-              setJobProgress(1)
-              setJobStatus('완료!')
-              setResult({ ...data, isVideo: true })
-            } else if (eventType === 'error') {
-              setJobError(data.message)
-            }
-            eventType = null
-          }
-        }
-      }
-    } catch (e) {
-      if (e.name !== 'AbortError') setJobError(e.message)
-    } finally {
-      setJobRunning(false)
-    }
-  }
+  //       for (const line of lines) {
+  //         if (line.startsWith('event: ')) {
+  //           eventType = line.slice(7).trim()
+  //         } else if (line.startsWith('data: ')) {
+  //           const data = JSON.parse(line.slice(6))
+  //           if (eventType === 'progress') {
+  //             setJobProgress(data.value)
+  //             setJobStatus(data.text)
+  //           } else if (eventType === 'done') {
+  //             setJobProgress(1)
+  //             setJobStatus('완료!')
+  //             setResult({ ...data, isVideo: true })
+  //           } else if (eventType === 'error') {
+  //             setJobError(data.message)
+  //           }
+  //           eventType = null
+  //         }
+  //       }
+  //     }
+  //   } catch (e) {
+  //     if (e.name !== 'AbortError') setJobError(e.message)
+  //   } finally {
+  //     setJobRunning(false)
+  //   }
+  // }
 
-  async function startI2v(payload, metaInfo) {
-    setResult(null)
-    setMeta(metaInfo)
-    try {
-      const res = await client.post('/api/sd/i2v', payload)
-      await attachJob(res.data.job_id)
-    } catch (e) {
-      setJobError(e.response?.data?.detail || e.message)
-    }
-  }
+  // async function startI2v(payload, metaInfo) {
+  //   setResult(null)
+  //   setMeta(metaInfo)
+  //   try {
+  //     const res = await client.post('/api/sd/i2v', payload)
+  //     await attachJob(res.data.job_id)
+  //   } catch (e) {
+  //     setJobError(e.response?.data?.detail || e.message)
+  //   }
+  // }
+
+  // useEffect(() => {
+  //   let cancelled = false
+  //   async function reattach() {
+  //     try {
+  //       const res = await sdApi.activeJobs('i2v')
+  //       const list = res.data.jobs || []
+  //       const target = list.find(j => j.status === 'running')
+  //       if (target && !cancelled) {
+  //         setMode('video')
+  //         attachJob(target.id)
+  //       }
+  //     } catch (e) {
+  //       console.error('작업 재연결 조회 실패:', e)
+  //     }
+  //   }
+  //   reattach()
+  //   return () => { cancelled = true; jobAbortRef.current?.abort() }
+  // }, [])
 
   useEffect(() => {
-    let cancelled = false
-    async function reattach() {
-      try {
-        const res = await sdApi.activeJobs('i2v')
-        const list = res.data.jobs || []
-        const target = list.find(j => j.status === 'running')
-        if (target && !cancelled) {
-          setMode('video')
-          attachJob(target.id)
-        }
-      } catch (e) {
-        console.error('작업 재연결 조회 실패:', e)
-      }
-    }
-    reattach()
-    return () => { cancelled = true; jobAbortRef.current?.abort() }
-  }, [])
+    if (!quote) return
+    setMode('dropdown')
+    setLeftDrawerOpen(true)
 
+    if (quote.checkpoint) {
+      const base = quote.checkpoint.split(/[/\\]/).pop()
+      const match = checkpoints.find(c => c === quote.checkpoint) || checkpoints.find(c => c === base)
+      if (match) setCheckpoint(match)
+      else alert(`체크포인트를 찾을 수 없음: ${base}`)
+    }
+
+    if (quote.positive != null || quote.negative != null) setPendingQuote(quote)
+  }, [quote])
+  
   function openHistoryPicker(onPickCallback) {
     setHistoryPickerTarget(() => onPickCallback)
     setShowHistoryPicker(true)
@@ -254,6 +304,101 @@ export default function GeneratePage() {
     setResult(null)
     setTags([])
     setTagPanelOpen(false)
+    setSelectedId(null)
+  }
+
+  useEffect(() => {
+    setQueueActive(
+      queueItems.some(i => ['waiting', 'running', 'cancelling'].includes(i.status)) ||
+      (queueData?.shutdown?.remaining ?? 0) > 0
+    )
+  }, [queueData])
+
+  async function showItem(item) {
+    setSelectedId(item.id)
+    setMeta(itemMeta(item))
+    setLikedTags(new Set()); setDislikedTags(new Set()); setFalseTags(new Set())
+    setScore(5); setPassType('문제 없음')
+    const r = item.result || {}
+
+    if (item.kind === 'i2v') {
+      setResult({ video_path: r.video_path, isVideo: true })
+      setTags([]); setUsedPrompt(''); setTagPanelOpen(false)
+    } else if (item.kind === 'i2i') {
+      setResult({ image_path: r.image_path })
+      setTags([]); setUsedPrompt(''); setTagPanelOpen(false)
+    } else {
+      setResult({ gen_id: r.gen_id, image_path: r.image_path })
+      try {
+        const gen = await historyApi.generation(r.gen_id)
+        setUsedPrompt(gen.data.prompt || '')
+        setTags(gen.data.tags || [])
+        setTagPanelOpen(true)
+      } catch (e) { console.error('태그 조회 실패:', e) }
+    }
+  }
+
+  // 새로 완료된 항목 자동 표시 (보던 항목이 최신이 아니면 건너뜀)
+  useEffect(() => {
+    const done = queueItems.filter(i => i.status === 'done')
+    if (seenDoneRef.current === null) {
+      seenDoneRef.current = new Set(done.map(i => i.id))   // 첫 로드 때 기존 완료분은 자동 표시하지 않음
+      return
+    }
+    const fresh = done.filter(i => !seenDoneRef.current.has(i.id))
+    if (!fresh.length) return
+    fresh.forEach(i => seenDoneRef.current.add(i.id))
+    if (followRef.current) showItem(fresh[fresh.length - 1])
+  }, [queueData])
+
+  async function enqueue(request) {
+    try {
+      await request()
+      await refetchQueue()
+    } catch (e) {
+      alert(e.response?.data?.detail || e.message)
+    }
+  }
+
+  function startI2v(payload) {
+    return enqueue(() => sdApi.enqueueI2v(payload))
+  }
+
+  function handleSelect(item) {
+    if (item.status === 'running' || item.status === 'cancelling') {
+      followRef.current = true   // 이 항목이 끝나면 자동으로 결과를 보여줌
+      setSelectedId(item.id)
+      setMeta(itemMeta(item))
+      setResult(null)
+      setTags([]); setUsedPrompt(''); setTagPanelOpen(false)
+      return
+    }
+    const latestDone = [...queueItems].reverse().find(i => i.status === 'done')
+    followRef.current = latestDone?.id === item.id
+    showItem(item)
+  }
+
+  async function handleRemove(item) {
+    await sdApi.removeQueueItem(item.id).catch(() => {})
+    refetchQueue()
+  }
+
+  async function handleClearPending() {
+    if (!confirm('대기 중인 항목과 진행 중인 작업을 모두 취소할까요?')) return
+    await sdApi.clearQueue().catch(() => {})
+    refetchQueue()
+  }
+  // 시스템 종료 핸들러
+  async function handleToggleShutdown() {
+    if (!shutdown.armed &&
+        !confirm('대기열의 모든 작업이 끝나면 PC를 종료합니다.\n(종료 60초 전부터 취소할 수 있습니다) 설정할까요?')) return
+    await sdApi.setQueueShutdown(!shutdown.armed).catch(() => {})
+    refetchQueue()
+  }
+
+  async function handleAbortShutdown() {
+    await sdApi.abortQueueShutdown().catch(() => {})
+    refetchQueue()
   }
 
   const isVideo = result?.isVideo
@@ -263,24 +408,53 @@ export default function GeneratePage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', overflow: 'hidden' }}>
 
+      <QueueStrip
+        items={queueItems}
+        open={queueOpen}
+        onToggle={() => setQueueOpen(v => !v)}
+        selectedId={selectedId}
+        onSelect={handleSelect}
+        onRemove={handleRemove}
+        onClearPending={handleClearPending}
+        shutdown={shutdown}
+        onToggleShutdown={handleToggleShutdown}
+        onAbortShutdown={handleAbortShutdown}
+      />
+
       {/* 뷰포트 + 서랍 영역 */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', paddingTop: 10 }}>
 
-        {/* 뷰포트 (오른쪽 태그 패널 열리면 밀림) */}
+      {/* 뷰포트 (오른쪽 태그 패널이 열리면 밀림) — 이미지는 이 영역 전체를 사용 */}
         <div style={{
           position: 'absolute', inset: 0,
-          right: tagPanelOpen ? '35%' : 0,
-          minWidth: tagPanelOpen ? 'calc(65% - 0px)' : 'auto',
+          right: tagPanelOpen ? TAG_PANEL_W : 0,
           transition: 'right 0.2s ease',
-          display: 'flex', flexDirection: 'column', padding: 16, gap: 10,
+          overflow: 'hidden',
+          background: 'var(--bg2)',
         }}>
-          <div style={{ flex: 1, overflow: 'auto', borderRadius: 8, background: 'var(--bg2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* 이미지 / 영상: 중앙 패널 전 영역 */}
+          <div style={{
+            position: 'absolute', inset: 0, padding: '5px 5px 130px 5px ',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
             {result ? (
               isVideo
                 ? <video src={`${API_BASE}/api/system/video?path=${encodeURIComponent(result.video_path)}`}
                     controls autoPlay loop
-                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-                : <ImageViewer src={`${API_BASE}/api/system/image?path=${encodeURIComponent(result.image_path)}`} />
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                : <ImageViewer
+                    src={`${API_BASE}/api/system/image?path=${encodeURIComponent(result.image_path)}`}
+                    style={{ width: '100%', height: '100%' }} />
+            ) : showRunningCenter ? (
+              <div style={{ width: 'min(360px, 80%)', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>[{selectedItem.kind}] 생성 중</div>
+                <div className="progress-bar" style={{ height: 10 }}>
+                  <div className="progress-bar-fill" style={{ width: `${(selectedItem.progress || 0) * 100}%` }} />
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  {Math.round((selectedItem.progress || 0) * 100)}% · {selectedItem.status === 'cancelling' ? '취소 중...' : selectedItem.text}
+                </div>
+              </div>
             ) : (
               <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>
                 생성된 결과가 여기에 표시됩니다
@@ -288,29 +462,54 @@ export default function GeneratePage() {
             )}
           </div>
 
-          {(displayRunning || progress > 0 || jobProgress > 0) && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
-              <div className="progress-bar">
-                <div className="progress-bar-fill" style={{ width: `${(jobRunning || jobProgress > 0 ? jobProgress : progress) * 100}%` }} />
+          {/* 하단 오버레이: 진행률 / 에러 / 메타 (이미지 드래그를 가로막지 않도록 pointerEvents 분리) */}
+          <div style={{
+            position: 'absolute', bottom: 16, right: 16,
+            left: leftDrawerOpen ? 396 : 16,
+            transition: 'left 0.2s ease',
+            zIndex: 5,
+            display: 'flex', flexDirection: 'column', gap: 6,
+            pointerEvents: 'none',
+          }}>
+            {activeItem && activeItem.id !== selectedId && (
+              <div style={{
+                display: 'flex', flexDirection: 'column', gap: 4,
+                padding: '6px 10px', borderRadius: 8,
+                background: 'rgba(36,36,36,0.85)', border: '1px solid var(--border)',
+              }}>
+                <div className="progress-bar">
+                  <div className="progress-bar-fill" style={{ width: `${(activeItem.progress || 0) * 100}%` }} />
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                  [{activeItem.kind}] {activeItem.status === 'cancelling' ? '취소 중...' : activeItem.text}
+                </span>
               </div>
-              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                {jobRunning || jobProgress > 0 ? jobStatus : statusText}
-              </span>
-            </div>
-          )}
-          {(error || jobError) && <div style={{ color: 'var(--danger)', fontSize: 12, flexShrink: 0 }}>{error || jobError}</div>}
+            )}
 
-          {meta && (
-            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, fontSize: 11, color: 'var(--text-dim)', flexShrink: 0, maxHeight: 100, overflow: 'auto' }}>
-              {Object.entries(meta).map(([k, v]) => (
-                v !== undefined && v !== '' && (
-                  <span key={k} style={{ marginRight: 12 }}>
-                    <span style={{ color: 'var(--text)' }}>{k}</span>: {String(v)}
-                  </span>
-                )
-              ))}
-            </div>
-          )}
+            {lastError && (
+              <div style={{
+                color: 'var(--danger)', fontSize: 12,
+                padding: '6px 10px', borderRadius: 8,
+                background: 'rgba(36,36,36,0.85)', border: '1px solid var(--border)',
+              }}>⚠ [{lastError.kind}] {lastError.error}</div>
+            )}
+
+            {meta && (
+              <div style={{
+                background: 'rgba(36,36,36,0.85)', border: '1px solid var(--border)',
+                borderRadius: 8, padding: 10, fontSize: 11, color: 'var(--text-dim)',
+                maxHeight: 100, overflow: 'auto', pointerEvents: 'auto',
+              }}>
+                {Object.entries(meta).map(([k, v]) => (
+                  v !== undefined && v !== '' && (
+                    <span key={k} style={{ marginRight: 12 }}>
+                      <span style={{ color: 'var(--text)' }}>{k}</span>: {String(v)}
+                    </span>
+                  )
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* 왼쪽 서랍 토글 버튼 (파일탭 형태) */}
@@ -329,7 +528,7 @@ export default function GeneratePage() {
             transition: 'left 0.2s ease',
           }}
         >
-          {leftDrawerOpen ? '◀' : '▶'}
+          {leftDrawerOpen ? '◀ 접기' : '옵션 ▶'}
         </button>
 
         {/* 왼쪽 서랍 (오버레이, 뷰포트 안 밀림) */}
@@ -369,8 +568,7 @@ export default function GeneratePage() {
                 tagFileData={tagFileData}
                 koMap={koMap}
                 allWeights={allWeights}
-                run={run}
-                running={running}
+                onEnqueue={enqueue}
                 result={result}
                 setResult={setResult}
                 setMeta={setMeta}
@@ -378,13 +576,14 @@ export default function GeneratePage() {
                 usedPrompt={usedPrompt} setUsedPrompt={setUsedPrompt}
                 setTagPanelOpen={setTagPanelOpen}
                 onGenerated={() => setTagPanelOpen(true)}
+                pendingQuote={pendingQuote}
+                onQuoteConsumed={() => setPendingQuote(null)}
               />
             )}
             {mode === 'i2i' && (
               <I2iModePanel
                 checkpoint={checkpoint}
-                run={run}
-                running={running}
+                onEnqueue={enqueue}
                 setResult={setResult}
                 setMeta={setMeta}
                 onPreview={src => setI2iOverlay(src)}
@@ -394,7 +593,7 @@ export default function GeneratePage() {
             {mode === 'video' && (
               <VideoModePanel
                 onRun={startI2v}
-                running={jobRunning}
+                running={false}
                 onPreview={src => setI2iOverlay(src)}
                 openHistoryPicker={openHistoryPicker}
               />
@@ -402,61 +601,74 @@ export default function GeneratePage() {
           </div>
         </div>
 
-        {/* 오른쪽 태그 패널 (뷰포트를 밀어냄) */}
+      {/* 오른쪽 태그 패널 토글 버튼 (파일탭 형태) — 태그가 있을 때만 표시 */}
+        {hasTags && (
+          <button
+            onClick={() => setTagPanelOpen(v => !v)}
+            style={{
+              position: 'absolute', top: 0,
+              right: tagPanelOpen ? TAG_PANEL_W : 0,
+              zIndex: 60,
+              width: 60, height: 60,
+              border: '1px solid var(--border)', borderTop: 'none',
+              borderRight: tagPanelOpen ? 'none' : undefined,
+              borderRadius: '0 0 0 12px',
+              background: 'var(--bg2)', color: 'var(--text-dim)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16, cursor: 'pointer',
+              transition: 'right 0.2s ease',
+            }}
+          >
+            {tagPanelOpen ? '▶' : '◀'}
+          </button>
+        )}
+
+        {/* 오른쪽 태그 패널 (뷰포트를 밀어냄, 닫으면 완전히 숨김 — 언마운트 방지로 display 토글) */}
         {hasTags && (
           <div style={{
             position: 'absolute', top: 0, right: 0, bottom: 0,
-            width: tagPanelOpen ? '35%' : 40, minWidth: tagPanelOpen ? 320 : 40,
+            width: TAG_PANEL_W,
             background: 'var(--bg2)', borderLeft: '1px solid var(--border)',
-            display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            transition: 'width 0.2s ease', zIndex: 40,
-            boxShadow: tagPanelOpen ? '-4px 0 16px rgba(0,0,0,0.3)' : 'none',
+            display: tagPanelOpen ? 'flex' : 'none',
+            flexDirection: 'column', overflow: 'hidden',
+            zIndex: 40,
+            boxShadow: '-4px 0 16px rgba(0,0,0,0.3)',
           }}>
             <div style={{
-              padding: tagPanelOpen ? '10px 12px' : '10px 4px',
+              padding: '10px 12px',
               borderBottom: '1px solid var(--border)',
               display: 'flex', gap: 8, alignItems: 'center', whiteSpace: 'nowrap',
-              justifyContent: tagPanelOpen ? 'flex-start' : 'center',
             }}>
-              <button className="btn btn-ghost" style={{ padding: '4px 6px', minWidth: 0 }} onClick={() => setTagPanelOpen(v => !v)}>
-                {tagPanelOpen ? '접기 ▶' : '◀ 열기'}
-              </button>
-              {tagPanelOpen && (
+              <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>패스 유형</span>
+              {['문제 없음', '그림체', '인체 디테일', '마음에 들지 않음'].map(p => (
+                <button key={p} className="btn btn-ghost"
+                  style={{ padding: '3px 8px', fontSize: 11, ...(passType === p ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                  onClick={() => setPassType(p)}>{p}</button>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+              {passType !== '마음에 들지 않음' && (
                 <>
-                  <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>패스 유형</span>
-                  {['문제 없음', '그림체', '인체 디테일', '마음에 들지 않음'].map(p => (
-                    <button key={p} className="btn btn-ghost"
-                      style={{ padding: '3px 8px', fontSize: 11, ...(passType === p ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
-                      onClick={() => setPassType(p)}>{p}</button>
-                  ))}
+                  <PromptTags prompt={usedPrompt} />
+                  <TagPanel tags={tags} koMap={koMap} liked={likedTags} disliked={dislikedTags} passed={falseTags}
+                    onLike={tag => setLikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), dislikedTags.delete(tag), falseTags.delete(tag)); return s })}
+                    onDislike={tag => setDislikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), falseTags.delete(tag)); return s })}
+                    onPass={tag => setFalseTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), dislikedTags.delete(tag)); return s })}
+                  />
+                  <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
+                    <label>Score: {score}</label>
+                    <input type="range" min={0} max={10} value={score}
+                      onChange={e => setScore(+e.target.value)}
+                      style={{ padding: 0, border: 'none', background: 'none', width: '100%' }} />
+                  </div>
                 </>
               )}
             </div>
-            {tagPanelOpen && (
-              <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-                {passType !== '마음에 들지 않음' && (
-                  <>
-                    <PromptTags prompt={usedPrompt} />
-                    <TagPanel tags={tags} koMap={koMap} liked={likedTags} disliked={dislikedTags} passed={falseTags}
-                      onLike={tag => setLikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), dislikedTags.delete(tag), falseTags.delete(tag)); return s })}
-                      onDislike={tag => setDislikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), falseTags.delete(tag)); return s })}
-                      onPass={tag => setFalseTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), dislikedTags.delete(tag)); return s })}
-                    />
-                    <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
-                      <label>Score: {score}</label>
-                      <input type="range" min={0} max={10} value={score}
-                        onChange={e => setScore(+e.target.value)}
-                        style={{ padding: 0, border: 'none', background: 'none', width: '100%' }} />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-            {tagPanelOpen && (
-              <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
-                <button className="btn btn-primary" style={{ width: '100%' }} onClick={saveFeedback}>저장</button>
-              </div>
-            )}
+
+            <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
+              <button className="btn btn-primary" style={{ width: '100%' }} onClick={saveFeedback}>저장</button>
+            </div>
           </div>
         )}
       </div>
@@ -530,7 +742,7 @@ function HistoryImagePicker({ onPick, onClose }) {
     queryKey: ['generations'],
     queryFn: () => historyApi.generations().then(r => r.data),
   })
-  const generations = gensData?.generations || []
+  const generations = (gensData?.generations || []).filter(g => g.media_type !== 'video')
 
   return (
     <div
@@ -781,20 +993,29 @@ function MaskDrawOverlay({ imageSrc, onDone, onClose }) {
 }
 
 // ── 비디오 모드 패널 ──────────────────────────────────────
+function loadI2vDraft() {
+  try { return JSON.parse(localStorage.getItem('i2vDraft')) || {} } catch { return {} }
+}
+
 function VideoModePanel({ onRun, running, onPreview, openHistoryPicker }) {
+  const [draft] = useState(loadI2vDraft)
   const [subMode, setSubMode]       = useState('i2v')
-  const [baseImage, setBaseImage]   = useState(null)
-  const [prompt, setPrompt]         = useState('')
-  const [negative, setNegative]     = useState('')
-  const [seed, setSeed]             = useState(-1)
-  const [width, setWidth]           = useState(1280)
-  const [height, setHeight]         = useState(720)
-  const [length, setLength]         = useState(81)
-  const [highSteps, setHighSteps]   = useState(2)
-  const [lowSteps, setLowSteps]     = useState(3)
-  const [cfg, setCfg]               = useState(1.0)
-  const [loraName, setLoraName]         = useState('')
-  const [loraStrength, setLoraStrength] = useState(0.8)
+  const [baseImage, setBaseImage]   = useState(() =>
+    draft.baseImage
+      ? { ...draft.baseImage, src: `${API_BASE}/api/system/image?path=${encodeURIComponent(draft.baseImage.path)}` }
+      : null
+  )
+  const [prompt, setPrompt]         = useState(draft.prompt ?? '')
+  const [negative, setNegative]     = useState(draft.negative ?? '')
+  const [seed, setSeed]             = useState(draft.seed ?? -1)
+  const [width, setWidth]           = useState(draft.width ?? 1280)
+  const [height, setHeight]         = useState(draft.height ?? 720)
+  const [length, setLength]         = useState(draft.length ?? 81)
+  const [highSteps, setHighSteps]   = useState(draft.highSteps ?? 2)
+  const [lowSteps, setLowSteps]     = useState(draft.lowSteps ?? 3)
+  const [cfg, setCfg]               = useState(draft.cfg ?? 1.0)
+  const [loraName, setLoraName]         = useState(draft.loraName ?? '')
+  const [loraStrength, setLoraStrength] = useState(draft.loraStrength ?? 0.8)
 
   const { data: loraData } = useQuery({
     queryKey: ['loras'],
@@ -802,33 +1023,6 @@ function VideoModePanel({ onRun, running, onPreview, openHistoryPicker }) {
   })
   const loras = loraData?.loras || []
 
-  // 입력 복원 (마운트 시 1회)
-  useEffect(() => {
-    const saved = localStorage.getItem('i2vDraft')
-    if (!saved) return
-    try {
-      const d = JSON.parse(saved)
-      if (d.baseImage) {
-        setBaseImage({
-          ...d.baseImage,
-          src: `${API_BASE}/api/system/image?path=${encodeURIComponent(d.baseImage.path)}`,
-        })
-      }
-      if (d.prompt !== undefined) setPrompt(d.prompt)
-      if (d.negative !== undefined) setNegative(d.negative)
-      if (d.seed !== undefined) setSeed(d.seed)
-      if (d.width !== undefined) setWidth(d.width)
-      if (d.height !== undefined) setHeight(d.height)
-      if (d.length !== undefined) setLength(d.length)
-      if (d.highSteps !== undefined) setHighSteps(d.highSteps)
-      if (d.lowSteps !== undefined) setLowSteps(d.lowSteps)
-      if (d.cfg !== undefined) setCfg(d.cfg)
-      if (d.loraName !== undefined) setLoraName(d.loraName)
-      if (d.loraStrength !== undefined) setLoraStrength(d.loraStrength)
-    } catch (e) {
-      console.error('i2v draft 복원 실패', e)
-    }
-  }, [])
 
   // 입력 저장 (변경 시마다)
   useEffect(() => {
@@ -894,12 +1088,12 @@ function VideoModePanel({ onRun, running, onPreview, openHistoryPicker }) {
 
           <div>
             <label>✅ 프롬프트</label>
-            <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
+            <ClearableTextarea value={prompt} onChange={setPrompt}
               style={{ height: 70, resize: 'vertical', fontSize: 11 }} />
           </div>
           <div>
             <label>❌ 네거티브</label>
-            <textarea value={negative} onChange={e => setNegative(e.target.value)}
+            <ClearableTextarea value={negative} onChange={setNegative}
               style={{ height: 50, resize: 'vertical', fontSize: 11 }} />
           </div>
 
@@ -942,7 +1136,7 @@ function VideoModePanel({ onRun, running, onPreview, openHistoryPicker }) {
 }
 
 // ── i2i 모드 패널 ──────────────────────────────────────────
-function I2iModePanel({ checkpoint, run, running, setResult, setMeta, onPreview, openHistoryPicker }) {
+function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker }) {
   const [baseImage, setBaseImage] = useState(null)
   const [maskBlob, setMaskBlob]   = useState(null)
   const [maskSrc, setMaskSrc]     = useState(null)
@@ -976,62 +1170,37 @@ function I2iModePanel({ checkpoint, run, running, setResult, setMeta, onPreview,
 
   async function generate() {
     if (!baseImage) { alert('베이스 이미지를 선택해주세요'); return }
-
-    let imagePath = baseImage.path || ''
     if (!baseImage.fromHistory) {
       alert('파일 업로드 엔드포인트 미구현 — 히스토리 이미지를 사용해주세요')
       return
     }
 
-    setResult(null)
-    const metaInfo = {
-      모드: 'i2i', 체크포인트: checkpoint, 프롬프트: prompt, 네거티브: negative,
-      Denoise: denoise, 시드: seed,
-      LoRA: loraName ? `${loraName} (${loraStrength})` : '없음',
-      마스크: maskBlob ? '있음' : '없음',
-    }
+    const form = new FormData()
+    form.append('image_path', baseImage.path || '')
+    form.append('checkpoint', checkpoint)
+    form.append('prompt', prompt)
+    form.append('negative', negative)
+    form.append('denoise', denoise)
+    form.append('seed', seed)
+    form.append('lora_name', loraName)
+    form.append('lora_strength', loraStrength)
+    if (maskBlob) form.append('mask_file', maskBlob, 'mask.png')
 
-    if (maskBlob) {
-      const form = new FormData()
-      form.append('image_path', imagePath)
-      form.append('checkpoint', checkpoint)
-      form.append('prompt', prompt)
-      form.append('negative', negative)
-      form.append('denoise', denoise)
-      form.append('seed', seed)
-      form.append('mask_file', maskBlob, 'mask.png')
-      form.append('lora_name', loraName)
-      form.append('lora_strength', loraStrength)
-
-      await run(sdApi.i2iMaskUrl(), form, {
-        onDone: (data) => { setResult(data); setMeta(metaInfo) }
-      })
-    } else {
-      await run(
-        sdApi.i2iUrl(),
-        {
-          image_path: imagePath, checkpoint, prompt, negative, denoise, seed,
-          lora_name: loraName, lora_strength: loraStrength,
-        },
-        { onDone: (data) => { setResult(data); setMeta(metaInfo) } }
-      )
-    }
+    await onEnqueue(() => sdApi.enqueueI2i(form))
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
       <div>
-        <label>✅ 긍정 프롬프트</label>
-        <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
-          placeholder="비워두면 공백으로 전달"
-          style={{ height: 70, resize: 'vertical' }} />
-      </div>
-      <div>
-        <label>❌ 부정 프롬프트</label>
-        <textarea value={negative} onChange={e => setNegative(e.target.value)}
-          placeholder="비워두면 기본 네거티브 사용"
-          style={{ height: 50, resize: 'vertical' }} />
-      </div>
+            <label>✅ 프롬프트</label>
+            <ClearableTextarea value={prompt} onChange={setPrompt}
+              style={{ height: 70, resize: 'vertical', fontSize: 11 }} />
+          </div>
+          <div>
+            <label>❌ 네거티브</label>
+            <ClearableTextarea value={negative} onChange={setNegative}
+              style={{ height: 50, resize: 'vertical', fontSize: 11 }} />
+          </div>
 
       <div>
         <label>Denoise: {denoise} (낮을수록 원본 유지)</label>
@@ -1093,8 +1262,8 @@ function I2iModePanel({ checkpoint, run, running, setResult, setMeta, onPreview,
         />
       </div>
 
-      <button className="btn btn-primary" disabled={running || !baseImage} onClick={generate}>
-        {running ? '생성 중...' : '이미지 생성'}
+      <button className="btn btn-primary" disabled={!baseImage} onClick={generate}>
+        이미지 생성
       </button>
 
       {showMaskDraw && baseImage && (
@@ -1114,9 +1283,10 @@ function I2iModePanel({ checkpoint, run, running, setResult, setMeta, onPreview,
 
 // ── 드롭박스 모드 패널 ─────────────────────────────────────
 function DropdownModePanel({
-  checkpoint, tagFileData, koMap, allWeights, run, running,
+  checkpoint, tagFileData, koMap, allWeights, onEnqueue,
   result, setResult, setMeta,
-  tags, setTags, usedPrompt, setUsedPrompt, onGenerated, setTagPanelOpen
+  tags, setTags, usedPrompt, setUsedPrompt, onGenerated, setTagPanelOpen,
+  pendingQuote, onQuoteConsumed
 }) {
   const [negative, setNegative] = useState('')
   const [dropSelections, setDropSelections] = useState(() => {
@@ -1244,6 +1414,55 @@ function DropdownModePanel({
     })
   }, [allTagsFlat])
 
+    // 히스토리 프롬프트 인용 (기존 값 대체)
+  useEffect(() => {
+    if (!pendingQuote) return
+
+    if (pendingQuote.positive != null) {
+      const tokens = [...new Set(
+        pendingQuote.positive.split(',').map(t => t.trim()).filter(Boolean)
+      )]
+      const selections = {}
+      const order = []
+
+      for (const token of tokens) {
+        const lower = token.toLowerCase()
+        const underscored = lower.replace(/ /g, '_')
+        const hit = allTagsFlat.find(t =>
+          t.en.toLowerCase() === underscored ||
+          t.en.toLowerCase() === lower ||
+          t.ko === token
+        )
+
+        if (hit) {
+          const sub = (CATEGORY_CONFIG[hit.cat] || []).find(s => `${hit.cat}.${s.key}` === hit.subKey)
+          const cur = selections[hit.subKey] || []
+          if (cur.includes(hit.en)) continue
+          if (sub?.multi || cur.length === 0) {
+            selections[hit.subKey] = [...cur, hit.en]
+            order.push({ subKey: hit.subKey, en: hit.en, isManual: false })
+            continue
+          }
+        }
+        // 보유 태그가 아니거나 단일 선택 칸이 이미 찬 경우 → 수동 태그로 보존
+        if (!order.some(p => p.isManual && p.en === token)) {
+          order.push({ subKey: null, en: token, isManual: true })
+        }
+      }
+
+      setDropRandom({})
+      setDropRandomFixed({})
+      setDropSelections(selections)
+      setPromptOrder(order)
+    }
+
+    if (pendingQuote.negative != null) {
+      setNegative(dedupeTags(pendingQuote.negative))
+    }
+
+    onQuoteConsumed?.()
+  }, [pendingQuote])
+  
   function toggleSub(subKey) {
     setOpenSubs(prev => {
       const s = new Set(prev)
@@ -1279,44 +1498,10 @@ function DropdownModePanel({
   }
 
   async function generate() {
-    setResult(null)
-    setTags([])
-    setTagPanelOpen(false)
-
-    const parts = []
-    for (const cat of CATEGORY_ORDER) {
-      for (const sub of (CATEGORY_CONFIG[cat] || [])) {
-        const subKey = `${cat}.${sub.key}`
-        if (dropRandom[subKey]) {
-          const fixed = dropRandomFixed[subKey]
-          if (fixed) parts.push(fixed)
-        } else {
-          parts.push(...(dropSelections[subKey] || []))
-        }
-      }
-    }
-
     const prompt = promptOrder.map(t => t.en).filter(Boolean).join(', ')
-
-    await run(
-      sdApi.generateUrl(),
-      { prompt, negative, checkpoint, lora_name: loraName, lora_strength: loraStrength },
-      {
-        onDone: async (data) => {
-          setResult(data)
-          setMeta({
-            모드: '드롭박스', 체크포인트: checkpoint, 프롬프트: prompt, 네거티브: negative,
-            LoRA: loraName ? `${loraName} (${loraStrength})` : '없음',
-          })
-          try {
-            const gen = await historyApi.generation(data.gen_id)
-            setUsedPrompt(gen.data.prompt || '')
-            setTags(gen.data.tags || [])
-            onGenerated?.()
-          } catch(e) { console.error('태그 조회 실패:', e) }
-        }
-      }
-    )
+    await onEnqueue(() => sdApi.enqueueT2i({
+      prompt, negative, checkpoint, lora_name: loraName, lora_strength: loraStrength,
+    }))
   }
 
   function SortableTag({ id, label, subLabel, isManual, onRemove, onClick }) {
@@ -1369,7 +1554,6 @@ function DropdownModePanel({
         }}>
 
           {/* 전체 태그 검색 */}
-          <div style={{ position: 'relative' }}>
             <input
               placeholder="🔍 전체 태그 검색..."
               value={globalSearch}
@@ -1397,17 +1581,44 @@ function DropdownModePanel({
                       if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
                       return { ...prev, [t.subKey]: [...cur, t.en] }
                     })
-                  } else if (globalSearch.trim()) {
-                    const newTags = globalSearch.split(',')
-                      .map(t => t.trim().replace(/ /g, '_'))
-                      .filter(t => t && !promptOrder.some(p => p.isManual && p.en === t))
-                    if (newTags.length) {
-                      setPromptOrder(prev => [
-                        ...prev,
-                        ...newTags.map(en => ({ subKey: null, en, isManual: true }))
-                      ])
+                    } else if (globalSearch.trim()) {
+                      const tokens = globalSearch.split(',').map(t => t.trim()).filter(Boolean)
+                      const found = []
+                      const manual = []
+
+                      for (const token of tokens) {
+                        const lower = token.toLowerCase()
+                        const underscored = lower.replace(/ /g, '_')
+                        const hit = allTagsFlat.find(t =>
+                          t.en.toLowerCase() === underscored ||
+                          t.en.toLowerCase() === lower ||
+                          t.ko === token
+                        )
+                        if (hit) found.push(hit)
+                        else manual.push(token.replace(/ /g, '_'))
+                      }
+
+                      if (found.length) {
+                        setDropSelections(prev => {
+                          const next = { ...prev }
+                          for (const t of found) {
+                            const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
+                            const cur = next[t.subKey] || []
+                            if (cur.includes(t.en)) continue
+                            next[t.subKey] = sub?.multi ? [...cur, t.en] : [t.en]
+                          }
+                          return next
+                        })
+                      }
+
+                      const newManual = manual.filter(en => !promptOrder.some(p => p.en === en))
+                      if (newManual.length) {
+                        setPromptOrder(prev => [
+                          ...prev,
+                          ...newManual.map(en => ({ subKey: null, en, isManual: true }))
+                        ])
+                      }
                     }
-                  }
                   setGlobalSearch('')
                   setGlobalSearchOpen(false)
                   setGlobalNavIndex(-1)
@@ -1415,6 +1626,7 @@ function DropdownModePanel({
               }}
               style={{ fontSize: 12 }}
             />
+          <div style={{ position: 'relative', height: 0, marginTop: -6 }}>
             {globalSearchOpen && globalResults.length > 0 && (
               <div style={{
                 position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
@@ -1465,14 +1677,24 @@ function DropdownModePanel({
 
           {/* 최종 프롬프트 미리보기 */}
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>최종 프롬프트 미리보기</span>
-              <button className="btn btn-ghost"
-                style={{ fontSize: 11, padding: '2px 8px' }}
-                onClick={() => navigator.clipboard.writeText(promptOrder.map(t => t.en).join(', '))}>
-                📋 복사
-              </button>
-            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+                <button className="btn btn-ghost"
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                  disabled={promptOrder.length === 0}
+                  onClick={() => {
+                    setDropSelections({})
+                    setDropRandom({})
+                    setDropRandomFixed({})
+                    setPromptOrder([])
+                  }}>
+                  🗑️ 초기화
+                </button>
+                <button className="btn btn-ghost"
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                  onClick={() => navigator.clipboard.writeText(promptOrder.map(t => t.en).join(', '))}>
+                  📋 복사
+                </button>
+              </div>
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
@@ -1565,7 +1787,7 @@ function DropdownModePanel({
           {/* 부정 프롬프트 */}
           <div>
             <label>❌ 부정 프롬프트</label>
-            <textarea value={negative} onChange={e => setNegative(e.target.value)}
+            <ClearableTextarea value={negative} onChange={setNegative}
               style={{ height: 56, resize: 'vertical', fontSize: 11 }} />
           </div>
 
@@ -1807,9 +2029,37 @@ function DropdownModePanel({
 
       </div>
 
-      <button className="btn btn-primary" onClick={generate} disabled={running || !checkpoint} style={{ flexShrink: 0 }}>
-        {running ? '생성 중...' : '이미지 생성'}
+      <button className="btn btn-primary" onClick={generate} disabled={!checkpoint} style={{ flexShrink: 0 }}>
+        이미지 생성
       </button>
+    </div>
+  )
+}
+
+// ── 초기화(X) 버튼이 달린 텍스트박스 ─────────────────────
+function ClearableTextarea({ value, onChange, style, ...rest }) {
+  return (
+    <div style={{ position: 'relative' }}>
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{ ...style, paddingRight: 26 }}
+        {...rest}
+      />
+      {value && (
+        <button
+          type="button"
+          title="초기화"
+          onClick={() => onChange('')}
+          style={{
+            position: 'absolute', top: 4, right: 4,
+            width: 18, height: 18, padding: 0,
+            border: 'none', borderRadius: 4,
+            background: 'var(--bg2)', color: 'var(--text-dim)',
+            cursor: 'pointer', fontSize: 12, lineHeight: '18px',
+          }}
+        >×</button>
+      )}
     </div>
   )
 }

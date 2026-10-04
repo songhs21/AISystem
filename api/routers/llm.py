@@ -219,6 +219,14 @@ def chat_stream(req: ChatRequest):
                 stream=True,
                 timeout=300,
             ) as resp:
+                if not resp.ok:
+                    error_body = resp.text
+                    _llm_logger.error(
+                        f"Ollama HTTP {resp.status_code}: {error_body}"
+                    )
+                    raise requests.exceptions.HTTPError(
+                        f"Ollama HTTP {resp.status_code}: {error_body}"
+                    )
                 resp.raise_for_status()
                 for line in resp.iter_lines():
                     if not line:

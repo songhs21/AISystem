@@ -6,6 +6,16 @@ from datetime import datetime
 from core.db import get_conn
 from core.image.tag import tag_to_cat
 
+_GEN_COLS = (
+    "id, prompt, seed, image_path, tags, created_at, checkpoint, upscaled_image, "
+    "negative, lora_name, lora_strength, width, height, steps, cfg, sampler, scheduler, "
+    "media_type, video_path, source_image, params"
+)
+_META_FIELDS = {
+    "negative", "lora_name", "lora_strength", "width", "height",
+    "steps", "cfg", "sampler", "scheduler",
+}
+
 # ── 헬퍼 ──────────────────────────────────────────────────
 
 def _attach_category(tags: list[dict]) -> list[dict]:
@@ -13,46 +23,6 @@ def _attach_category(tags: list[dict]) -> list[dict]:
     for t in tags:
         t["category"] = tag_to_cat.get(t["tag"], "기타")
     return tags
-
-
-# get_all_generations 수정 — tags 파싱 부분만
-def get_all_generations() -> list[dict]:
-    conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, prompt, seed, image_path, tags, created_at, checkpoint, upscaled_image
-        FROM generations WHERE status = 'done' OR status IS NULL
-        ORDER BY created_at DESC
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    return [{
-        "id": r[0], "prompt": r[1], "seed": r[2],
-        "image_path": r[3],
-        "tags": _attach_category(json.loads(r[4])) if r[4] else [],
-        "created_at": r[5], "checkpoint": r[6] or "Unknown",
-        "upscaled_image": r[7] or None
-    } for r in rows]
-
-
-# get_generation_by_id 수정 — tags 파싱 부분만
-def get_generation_by_id(gen_id) -> dict | None:
-    conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, prompt, seed, image_path, tags, status, checkpoint, created_at
-        FROM generations WHERE id = ?
-    """, (gen_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row is None:
-        return None
-    return {
-        "id": row[0], "prompt": row[1], "seed": row[2],
-        "image_path": row[3],
-        "tags": _attach_category(json.loads(row[4])) if row[4] else [],
-        "status": row[5], "checkpoint": row[6], "created_at": row[7],
-    }
 
 # ── Generation ────────────────────────────────────────────
 
@@ -101,41 +71,76 @@ def update_upscaled_image(gen_id, filename):
         conn.commit()
 
 
+def _row_to_gen(r) -> dict:
+    return {
+        "id": r[0], "prompt": r[1], "seed": r[2], "image_path": r[3],
+        "tags": json.loads(r[4]) if r[4] else [],
+        "created_at": r[5], "checkpoint": r[6] or "Unknown",
+        "upscaled_image": r[7] or None,
+        "negative": r[8], "lora_name": r[9], "lora_strength": r[10],
+        "width": r[11], "height": r[12], "steps": r[13], "cfg": r[14],
+        "sampler": r[15], "scheduler": r[16],
+        "media_type": r[17] or "image", "video_path": r[18],
+        "source_image": r[19],
+        "params": json.loads(r[20]) if r[20] else None,
+    }
+
+
 def get_all_generations() -> list[dict]:
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, prompt, seed, image_path, tags, created_at, checkpoint, upscaled_image
+    cursor.execute(f"""
+        SELECT {_GEN_COLS}
         FROM generations WHERE status = 'done' OR status IS NULL
         ORDER BY created_at DESC
     """)
     rows = cursor.fetchall()
     conn.close()
-    return [{
-        "id": r[0], "prompt": r[1], "seed": r[2],
-        "image_path": r[3], "tags": json.loads(r[4]) if r[4] else [],
-        "created_at": r[5], "checkpoint": r[6] or "Unknown",
-        "upscaled_image": r[7] or None
-    } for r in rows]
+    return [_row_to_gen(r) for r in rows]
 
 
 def get_generation_by_id(gen_id) -> dict | None:
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, prompt, seed, image_path, tags, status, checkpoint, created_at
-        FROM generations WHERE id = ?
-    """, (gen_id,))
+    cursor.execute(f"SELECT {_GEN_COLS}, status FROM generations WHERE id = ?", (gen_id,))
     row = cursor.fetchone()
     conn.close()
     if row is None:
         return None
-    return {
-        "id": row[0], "prompt": row[1], "seed": row[2],
-        "image_path": row[3], "tags": json.loads(row[4]) if row[4] else [],
-        "tags": _attach_category(json.loads(row[4])) if row[4] else [],
-        "status": row[5], "checkpoint": row[6], "created_at": row[7],
-    }
+    gen = _row_to_gen(row)
+    gen["tags"] = _attach_category(gen["tags"])
+    gen["status"] = row[21]
+    return gen
+
+
+def update_generation_meta(gen_id, **fields):
+    """생성 DNA 컬럼 갱신 (허용된 컬럼만)"""
+    items = {k: v for k, v in fields.items() if k in _META_FIELDS}
+    if not items:
+        return
+    sets = ", ".join(f"{k} = ?" for k in items)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE generations SET {sets} WHERE id = ?", (*items.values(), gen_id))
+        conn.commit()
+
+
+def save_video(video_path, source_image, prompt, negative, seed,
+               width, height, cfg, params: dict | None = None) -> int:
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    with get_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO generations
+                (prompt, negative, seed, checkpoint, file_name, status, created_at,
+                 width, height, cfg, media_type, video_path, source_image, params)
+            VALUES (?, ?, ?, 'I2V', ?, 'done', ?, ?, ?, ?, 'video', ?, ?, ?)
+        """, (
+            prompt, negative, seed, os.path.basename(video_path), now,
+            width, height, cfg, video_path, source_image,
+            json.dumps(params or {}, ensure_ascii=False),
+        ))
+        conn.commit()
+        return cursor.lastrowid
 
 
 def get_generation_by_prompt_id(prompt_id) -> dict | None:

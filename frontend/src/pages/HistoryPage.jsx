@@ -7,6 +7,7 @@ import { useSSE } from '../hooks/useSSE'
 import ImageViewer from '../components/ImageViewer'
 import InpaintCanvas from '../components/InpaintCanvas'
 import TagPanel from '../components/TagPanel'
+import { dedupeTags } from '../utils/tags'
 
 const PAGE_SIZE = 10
 
@@ -14,7 +15,8 @@ const PASS_FILTER_OPTIONS = ['전체', '그림체', '인체 디테일', '마음�
 const PASS_TYPE_MAP = { '그림체': 'style', '인체 디테일': 'quality', '마음에 들지 않음': 'dislike' }
 const SCORE_OPTIONS = ['적용 안함', '피드백 없음', '이상', '이하', '동일']
 
-export default function HistoryPage() {
+
+export default function HistoryPage({ onQuote }) {
   const queryClient = useQueryClient()
 
   // 필터 상태
@@ -25,6 +27,7 @@ export default function HistoryPage() {
   const [excludedTags, setExcludedTags]   = useState([])
   const [includeMode, setIncludeMode]     = useState('AND')
   const [showImages, setShowImages]       = useState(true)
+  const [showVideos, setShowVideos]       = useState(true)
   const [showFilter, setShowFilter]       = useState(false)
   const [editTarget, setEditTarget] = useState(null)  // { gen, feedback }
 
@@ -161,6 +164,9 @@ export default function HistoryPage() {
         <button className="btn btn-ghost" onClick={() => setShowImages(v => !v)}>
           {showImages ? '🖼️ 이미지 숨기기' : '🖼️ 이미지 보기'}
         </button>
+        <button className="btn btn-ghost" onClick={() => setShowVideos(v => !v)}>
+          {showVideos ? '🎬 영상 숨기기' : '🎬 영상 보기'}
+        </button>
         <button className="btn btn-ghost" onClick={() => setShowFilter(v => !v)}>
           🔍 필터 {showFilter ? '닫기' : '설정'}
         </button>
@@ -239,26 +245,44 @@ export default function HistoryPage() {
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 16px 16px' }}>
         {pageGens.map(gen => {
           const feedback = feedbackMap[gen.id]
-
+          const isVideo = gen.media_type === 'video'
           return (
             <div key={gen.id} className="card" style={{ marginBottom: 12 }}>
               <div style={{ display: 'flex', gap: 12 }}>
 
-                {/* 이미지 */}
-                {showImages && gen.image_path && (
-                  <div style={{ width: '35%', maxWidth: 900, minWidth:300, flexShrink: 0 }}>
-                    <ImageViewer src={`${API_BASE}/api/system/image?path=${encodeURIComponent(gen.image_path)}`} style={{ width: '100%', aspectRatio: '1/1', height:'auto' }} />
+                {/* 이미지 / 영상 */}                {(isVideo ? showVideos && gen.video_path : showImages && gen.image_path) && (
+                  <div style={{ width: '35%', maxWidth: 900, minWidth: 300, flexShrink: 0 }}>
+                    {isVideo ? (
+                      <video
+                        src={`${API_BASE}/api/system/video?path=${encodeURIComponent(gen.video_path)}`}
+                        controls loop muted preload="metadata"
+                        style={{ width: '100%', borderRadius: 6, background: '#000' }}
+                      />
+                    ) : (
+                      <ImageViewer
+                        src={`${API_BASE}/api/system/image?path=${encodeURIComponent(gen.image_path)}`}
+                        style={{ width: '100%', aspectRatio: '1/1', height: 'auto' }}
+                      />
+                    )}
                   </div>
                 )}
 
                 {/* 정보 */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>📅 {gen.created_at}</div>
-                  <div style={{ fontSize: 12 }}>
-                    <span style={{ color: 'var(--text-dim)' }}>모델: </span>
-                    {gen.checkpoint?.split(/[/\\]/).pop()}
+                    <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>
+                        <span style={{ color: 'var(--text-dim)' }}>모델: </span>
+                        {gen.checkpoint?.split(/[/\\]/).pop()}
+                      </span>
+                      {!isVideo && gen.checkpoint && gen.checkpoint !== 'Unknown' && (
+                      <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+                        onClick={() => onQuote?.({ checkpoint: gen.checkpoint })}>
+                        📥 모델 적용
+                      </button>
+                    )}
                   </div>
-                  <PromptTags prompt={gen.prompt} />
+                  <GenerationDna gen={gen} onQuote={onQuote} />
 
                   {feedback && (
                     <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
@@ -268,40 +292,43 @@ export default function HistoryPage() {
                   )}
 
                   {/* 업스케일 상태 */}
-                  <div style={{ fontSize: 11, color: gen.upscaled_image ? 'var(--success)' : 'var(--text-dim)' }}>
-                    🔍 업스케일: {gen.upscaled_image ? `✅ ${gen.upscaled_image}` : '❌'}
-                  </div>
+                  {!isVideo && (
+                    <div style={{ fontSize: 11, color: gen.upscaled_image ? 'var(--success)' : 'var(--text-dim)' }}>
+                      🔍 업스케일: {gen.upscaled_image ? `✅ ${gen.upscaled_image}` : '❌'}
+                    </div>
+                  )}
 
                   {/* 액션 버튼 */}
-                  <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                    {!gen.upscaled_image && (
-                      <>
-                        <select value={selectedUpscaler} onChange={e => setSelectedUpscaler(e.target.value)}
-                          style={{ width: 160, fontSize: 11, padding: '4px 6px' }}>
-                          <option value="">업스케일 모델 선택</option>
-                          {modelList.map(m => <option key={m}>{m}</option>)}
-                        </select>
-                        <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}
-                          disabled={!selectedUpscaler || upscaleSSE.running}
-                          onClick={() => doUpscale(gen)}
-                        >🔼 업스케일</button>
-                      </>
-                    )}
+                  {!isVideo && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                      {!gen.upscaled_image && (
+                        <>
+                          <select value={selectedUpscaler} onChange={e => setSelectedUpscaler(e.target.value)}
+                            style={{ width: 160, fontSize: 11, padding: '4px 6px' }}>
+                            <option value="">업스케일 모델 선택</option>
+                            {modelList.map(m => <option key={m}>{m}</option>)}
+                          </select>
+                          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}
+                            disabled={!selectedUpscaler || upscaleSSE.running}
+                            onClick={() => doUpscale(gen)}
+                          >🔼 업스케일</button>
+                        </>
+                      )}
 
-                    <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}
-                      onClick={() => {
-                        const path = gen.upscaled_image
-                          ? `${gen.image_path.replace(/[^/\\]*$/, '')}${gen.upscaled_image}`
-                          : gen.image_path
-                        setInpaintTarget(path)
-                      }}
-                    >🖌️ 인페인팅</button>
+                      <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}
+                        onClick={() => {
+                          const path = gen.upscaled_image
+                            ? `${gen.image_path.replace(/[^/\\]*$/, '')}${gen.upscaled_image}`
+                            : gen.image_path
+                          setInpaintTarget(path)
+                        }}
+                      >🖌️ 인페인팅</button>
 
-                    <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}
-                      onClick={() => setEditTarget(editTarget?.gen.id === gen.id ? null : { gen, feedback })}
-                    >⚙️ 피드백 편집</button>
-                  </div>
-
+                      <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}
+                        onClick={() => setEditTarget(editTarget?.gen.id === gen.id ? null : { gen, feedback })}
+                      >⚙️ 피드백 편집</button>
+                    </div>
+                  )}
                   {/* 업스케일 진행 */}
                   {upscaleSSE.running && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -314,7 +341,7 @@ export default function HistoryPage() {
                 </div>
               </div>
 
-              {/* 피드백 편집 오버레이 ← 맨 아래 닫는 </div> 바로 앞에 추가 */}
+              {/* 피드백 편집 오버레이*/}
               {editTarget && (
                 <>
                   <div
@@ -490,6 +517,96 @@ function FeedbackEditorPanel({ gen, feedback, onSave }) {
         <button className="btn btn-primary" style={{ width: '100%' }} onClick={save}>
           변경 사항 저장
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ── 프롬프트 칩 ───────────────────────────────────────────
+function PromptChips({ text }) {
+  const tags = (text || '').split(',').map(t => t.trim()).filter(Boolean)
+  return (
+    <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.8 }}>
+      {tags.map((tag, i) => (
+        <span key={i} style={{
+          display: 'inline-block', margin: '2px 3px', padding: '1px 6px',
+          borderRadius: 4, background: 'var(--bg3)', border: '1px solid var(--border)',
+        }}>{tag}</span>
+      ))}
+    </div>
+  )
+}
+
+function DnaRow({ label, value }) {
+  if (value === null || value === undefined || value === '') return null
+  return (
+    <span style={{ marginRight: 12, whiteSpace: 'nowrap' }}>
+      <span style={{ color: 'var(--text)' }}>{label}</span>: {String(value)}
+    </span>
+  )
+}
+
+// ── 생성 DNA ──────────────────────────────────────────────
+function GenerationDna({ gen, onQuote }) {
+  const isVideo = gen.media_type === 'video'
+  const p = gen.params || {}
+  const negative = dedupeTags(gen.negative)
+  const size = gen.width && gen.height ? `${gen.width}x${gen.height}` : null
+  const sampler = gen.sampler
+    ? (gen.scheduler ? `${gen.sampler} / ${gen.scheduler}` : gen.sampler)
+    : null
+  const lora = gen.lora_name ? `${gen.lora_name} (${gen.lora_strength})` : null
+  const source = gen.source_image ? gen.source_image.split(/[/\\]/).pop() : null
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.8 }}>
+        <DnaRow label="시드" value={gen.seed === -1 ? '랜덤(미기록)' : gen.seed} />
+        <DnaRow label="해상도" value={size} />
+        {isVideo ? (
+          <>
+            <DnaRow label="프레임" value={p.length} />
+            <DnaRow label="FPS" value={p.frame_rate} />
+            <DnaRow label="스텝(High/Low)" value={p.high_steps != null ? `${p.high_steps} / ${p.low_steps}` : null} />
+            <DnaRow label="소스" value={source} />
+          </>
+        ) : (
+          <>
+            <DnaRow label="스텝" value={gen.steps} />
+            <DnaRow label="샘플러" value={sampler} />
+          </>
+        )}
+        <DnaRow label="CFG" value={gen.cfg} />
+        <DnaRow label="LoRA" value={lora} />
+      </div>
+
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>✅ 긍정 프롬프트</div>
+        {isVideo
+          ? <div style={{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'pre-wrap' }}>{gen.prompt || '-'}</div>
+          : <PromptChips text={gen.prompt} />}
+        {!isVideo && gen.prompt && (
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', marginTop: 4 }}
+            onClick={() => onQuote?.({ positive: gen.prompt })}>
+            
+            📥 긍정 프롬프트 인용
+          </button>
+        )}
+      </div>
+
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>❌ 부정 프롬프트</div>
+        {negative
+          ? (isVideo
+              ? <div style={{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'pre-wrap' }}>{negative}</div>
+              : <PromptChips text={negative} />)
+          : <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>기록 없음 (DNA 저장 이전 생성분)</div>}
+        {!isVideo && negative && (
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', marginTop: 4 }}
+            onClick={() => onQuote?.({ negative: gen.negative })}>
+            📥 부정 프롬프트 인용
+          </button>
+        )}
       </div>
     </div>
   )

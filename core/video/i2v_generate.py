@@ -104,22 +104,22 @@ def run_i2v(
     _high_steps = high_steps or I2V_DEFAULTS["high_steps"]
     _low_steps  = low_steps  or I2V_DEFAULTS["low_steps"]
     _total_steps = _high_steps + _low_steps
-    _high_end = high_end_step or I2V_DEFAULTS["high_end_step"]
+    _high_end = high_end_step or _high_steps   # High 담당 마지막 스텝 (별도 지정 시 우선)
     _cfg   = cfg or I2V_DEFAULTS["cfg"]
 
     # High KSamplerAdvanced
-    workflow["12_high"]["inputs"]["noise_seed"] = _seed
-    workflow["12_high"]["inputs"]["steps"]       = _total_steps
-    workflow["12_high"]["inputs"]["end_at_step"] = _high_steps
-    workflow["12_high"]["inputs"]["cfg"]         = _cfg
-    workflow["12_high"]["inputs"]["end_at_step"] = _high_end
+    high_in = workflow["12_high"]["inputs"]
+    high_in["noise_seed"]  = _seed
+    high_in["steps"]       = _total_steps
+    high_in["cfg"]         = _cfg
+    high_in["end_at_step"] = _high_end
 
     # Low KSamplerAdvanced
-    workflow["12_high"]["inputs"]["noise_seed"] = _seed
-    workflow["12_low"]["inputs"]["steps"]         = _total_steps
-    workflow["12_low"]["inputs"]["start_at_step"] = _high_steps
-    workflow["12_low"]["inputs"]["cfg"]           = _cfg
-    workflow["12_low"]["inputs"]["start_at_step"] = _high_end
+    low_in = workflow["12_low"]["inputs"]
+    low_in["noise_seed"]    = _seed
+    low_in["steps"]         = _total_steps
+    low_in["cfg"]           = _cfg
+    low_in["start_at_step"] = _high_end
 
     # 모델 (필요 시 교체 가능하도록 파라미터화는 나중 드롭다운 작업에서)
     workflow["6_high"]["inputs"]["model_name"] = I2V_DEFAULTS["model_high"]
@@ -156,4 +156,4 @@ def run_i2v(
         raise RuntimeError("I2V 결과 파일을 찾을 수 없음")
 
     video_path = max(files, key=os.path.getctime)
-    yield {"type": "done", "video_path": video_path}
+    yield {"type": "done", "video_path": video_path, "seed": _seed}

@@ -19,7 +19,12 @@ const TABS = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('generate')
+  const [quote, setQuote] = useState(null)
 
+  function handleQuote(payload) {
+    setQuote({ ...payload, nonce: Date.now() })
+    // setActiveTab('generate') // 클릭시 생성 탭으로 페이지 전환
+  }
   return (
     <QueryClientProvider client={queryClient}>
       <div className="app">
@@ -48,7 +53,7 @@ export default function App() {
               height: '100%'
             }}
           >
-            <GeneratePage />
+            <GeneratePage quote={quote} />
           </div>
 
           <div
@@ -59,7 +64,7 @@ export default function App() {
               height: '100%'
             }}
           >
-            <HistoryPage />
+            <HistoryPage onQuote={handleQuote} />
           </div>
 
           <div

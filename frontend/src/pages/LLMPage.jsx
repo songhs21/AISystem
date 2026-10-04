@@ -157,29 +157,6 @@ function handleDrop(e) {
   if (file) uploadAndAttach(file)
 }
 
-  // async function send() {
-  //   if (!input.trim() || loading || sessionId === null) return
-  //   const userMsg = { role: 'user', content: input, elapsed_ms: null }
-  //   setMessages(prev => [...prev, userMsg])
-  //   setInput('')
-  //   setLoading(true)
-  //   setError(null)
-
-  //   try {
-  //     const res = await llmApi.chat(userMsg.content, sessionId)
-  //     const { reply, elapsed_ms } = res.data
-  //     setMessages(prev => [...prev, { role: 'assistant', content: reply, elapsed_ms }])
-  //     // 세션 목록의 제목/시간이 바뀌었을 수 있으니 갱신
-  //     loadSessions()
-  //   } catch (e) {
-  //     const detail = e.response?.data?.detail || e.message
-  //     setError(detail)
-  //     setMessages(prev => [...prev, { role: 'assistant', content: `오류: ${detail}`, elapsed_ms: null }])
-  //   } finally {
-  //     setLoading(false)
-  //   }
-  // }
-
   // 히스토리 피커 send(임시)
   async function send() {
   if (!input.trim() || loading || sessionId === null) return

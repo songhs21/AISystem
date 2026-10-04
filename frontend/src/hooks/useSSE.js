@@ -73,5 +73,13 @@ export function useSSE() {
     abortRef.current?.abort()
   }, [])
 
+  const reset = useCallback(() => {
+    setProgress(0)
+    setStatusText('')
+    setError(null)
+  }, [])
+
+  return { progress, statusText, running, error, run, abort, reset }
+
   return { progress, statusText, running, error, run, abort }
 }

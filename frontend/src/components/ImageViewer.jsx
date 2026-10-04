@@ -38,8 +38,24 @@ export default function ImageViewer({ src, style = {} }) {
   const onMouseUp = () => setDragging(false)
 
   // 더블클릭 리셋
-  const onDoubleClick = () => { setScale(1); setOffset({ x: 0, y: 0 }) }
+    function onDoubleClick() {
+    setScale(1)
+    setOffset(getCenterOffset())
+  }
 
+  const imgRef = useRef(null)
+
+  // 컨테이너 중앙에 오는 offset (이미지의 레이아웃 크기 기준)
+  const getCenterOffset = () => {
+    const c = containerRef.current
+    const im = imgRef.current
+    if (!c || !im) return { x: 0, y: 0 }
+    return {
+      x: (c.clientWidth - im.offsetWidth) / 2,
+      y: (c.clientHeight - im.offsetHeight) / 2,
+    }
+  }
+  
   return (
     <div
       ref={containerRef}
@@ -60,12 +76,15 @@ export default function ImageViewer({ src, style = {} }) {
       }}
     >
       <img
+        ref={imgRef}
         src={src}
         alt=""
         draggable={false}
+        onLoad={() => { setScale(1); setOffset(getCenterOffset()) }}
         style={{
           display: 'block',
           maxWidth: '100%',
+          maxHeight: '100%',
           transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
           transformOrigin: 'center center',
           transition: dragging ? 'none' : 'transform 0.05s',

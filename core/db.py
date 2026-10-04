@@ -66,7 +66,7 @@ def init_db():
     existing_gen = {row[1] for row in cursor.execute("PRAGMA table_info(generations)")}
     if "upscaled_image" not in existing_gen:
         cursor.execute("ALTER TABLE generations ADD COLUMN upscaled_image TEXT")
-
+    
     # 좀비 레코드 정리
     cursor.execute("UPDATE generations SET status = 'failed' WHERE status = 'generating'")
 

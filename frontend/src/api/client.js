@@ -24,6 +24,16 @@ export const sdApi = {
   i2vUrl: () => `${API_BASE}/api/sd/i2v`,
   activeJobs: (kind = 'i2v') => client.get('/api/sd/jobs/active', { params: { kind } }),
   jobStreamUrl: (jobId) => `${API_BASE}/api/sd/jobs/${jobId}/stream`,
+  
+  // ── 대기열 ────────────────────────────────────────────────
+  queue: () => client.get('/api/sd/queue'),
+  enqueueT2i: (payload) => client.post('/api/sd/queue/t2i', payload),
+  enqueueI2i: (form) => client.post('/api/sd/queue/i2i', form),
+  enqueueI2v: (payload) => client.post('/api/sd/queue/i2v', payload),
+  removeQueueItem: (id) => client.delete(`/api/sd/queue/${id}`),
+  clearQueue: () => client.delete('/api/sd/queue'),
+  setQueueShutdown: (enabled) => client.post('/api/sd/queue/shutdown', { enabled }),
+  abortQueueShutdown: () => client.post('/api/sd/queue/shutdown/abort'),
 }
 
 // ── 히스토리 ──────────────────────────────────────────────
@@ -80,7 +90,7 @@ export const ollamaApi = {
 // ── 시스템 ────────────────────────────────────────────────
 export const systemApi = {
   status: () => client.get('/api/system/status'),
-  switch: (mode, llm_model = 'qwen3:14b') =>
+  switch: (mode, llm_model = 'sorc/qwen3.5-instruct-heretic:9b') =>
     client.post('/api/system/switch', { mode, llm_model }),
   uploadImage: (file) => {
     const form = new FormData()
@@ -88,4 +98,3 @@ export const systemApi = {
     return client.post('/api/system/upload', form)
   },
 }
-

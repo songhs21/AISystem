@@ -19,6 +19,7 @@ import subprocess
 import time
 import json as _json
 from config.PATH import LORA_TRIGGERS
+from core.system.gen_queue import GenerationCancelled
 
 # ── 워크플로우 로드 ───────────────────────────────────────
 
@@ -84,6 +85,12 @@ def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95, prompt_
                 mapped = start_ratio + (value / max_v if max_v > 0 else 0) * (end_ratio - start_ratio)
                 yield {"type": "progress", "value": mapped, "text": f"스텝 {value}/{max_v}"}
 
+            elif mtype == "execution_interrupted":
+                raise GenerationCancelled()
+
+            elif mtype == "execution_error":
+                raise RuntimeError(f"ComfyUI 실행 오류: {data.get('exception_message', '알 수 없음')}")
+            
             elif mtype == "executing":
                 if prompt_id and data.get("prompt_id") != prompt_id:
                     continue
@@ -278,6 +285,50 @@ def run_inpaint(image_path: str, mask_path: str, checkpoint: str,
 
     yield {"type": "done", "image_path": max(new_files, key=os.path.getctime)}
 
+# ── i2i 입력 해상도 가드 ─────────────────────────────────
+
+I2I_PIXEL_TOLERANCE = 1.15  # 모델 기준 픽셀 수 대비 이 배수 이하면 리사이즈하지 않음
+
+
+def _model_pixel_budget(checkpoint: str) -> int:
+    from config.constants import MODEL_RESOLUTION
+    name = (checkpoint or "").lower()
+    for key, cfg in MODEL_RESOLUTION.items():
+        if key.lower() in name:
+            return cfg["width"] * cfg["height"]
+    return 832 * 1216  # sd.py get_model_config 기본값과 동일
+
+
+def _prepare_i2i_input(image_path: str, checkpoint: str):
+    """
+    i2i 입력 이미지를 ComfyUI input 폴더에 준비한다.
+    반환: (input 파일명, 리사이즈된 (w, h) 또는 None, 안내 문구 또는 None)
+    - 모델 기준 픽셀 수를 넘을 때만 비율 유지 다운스케일 (확대 없음, LANCZOS, 8의 배수)
+    """
+    from PIL import Image as PILImage
+
+    filename = os.path.basename(image_path)
+    dest = os.path.join(str(COMFY_INPUT), filename)
+
+    with PILImage.open(image_path) as img:
+        w, h = img.size
+        budget = _model_pixel_budget(checkpoint)
+
+        if w * h <= budget * I2I_PIXEL_TOLERANCE:
+            if os.path.normpath(image_path) != os.path.normpath(dest):
+                shutil.copy2(image_path, dest)
+            return filename, None, None
+
+        scale = (budget / (w * h)) ** 0.5
+        new_w = max(64, round(w * scale / 8) * 8)
+        new_h = max(64, round(h * scale / 8) * 8)
+        resized = img.convert("RGB").resize((new_w, new_h), PILImage.LANCZOS)
+
+    stem = os.path.splitext(filename)[0].strip()
+    fit_name = f"{stem}_fit.png"
+    resized.save(os.path.join(str(COMFY_INPUT), fit_name))
+    return fit_name, (new_w, new_h), f"입력 이미지 축소: {w}x{h} → {new_w}x{new_h}"
+
 # ── i2i ──────────────────────────────────────────────────
 
 def run_i2i(image_path: str, checkpoint: str,
@@ -295,9 +346,9 @@ def run_i2i(image_path: str, checkpoint: str,
         client_id = str(uuid.uuid4())
 
     filename = os.path.basename(image_path)
-    dest = os.path.join(str(COMFY_INPUT), filename)
-    if os.path.abspath(image_path) != os.path.abspath(dest):
-        shutil.copy2(image_path, dest)
+    input_name, _, note = _prepare_i2i_input(image_path, checkpoint)
+    if note:
+        yield {"type": "progress", "value": 0.03, "text": note}
 
     with open(I2IBASE, "r", encoding="utf-8") as f:
         workflow = json.load(f)
@@ -305,7 +356,7 @@ def run_i2i(image_path: str, checkpoint: str,
     if seed < 0:
         seed = random.randint(1, 999999999999999)
 
-    workflow["1"]["inputs"]["image"]    = filename
+    workflow["1"]["inputs"]["image"]    = input_name
     workflow["6"]["inputs"]["text"]     = prompt
     workflow["7"]["inputs"]["text"]     = negative
     workflow["9"]["inputs"]["ckpt_name"] = checkpoint
@@ -351,9 +402,9 @@ def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
         client_id = str(uuid.uuid4())
 
     filename = os.path.basename(image_path)
-    dest = os.path.join(str(COMFY_INPUT), filename)
-    if os.path.normpath(image_path) != os.path.normpath(dest):
-        shutil.copy2(image_path, dest)
+    input_name, fit_size, note = _prepare_i2i_input(image_path, checkpoint)
+    if note:
+        yield {"type": "progress", "value": 0.03, "text": note}
 
     from PIL import Image as PILImage, ImageFilter
 
@@ -364,8 +415,10 @@ def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
     if not wait_for_file_ready(mask_input_path):
         raise TimeoutError("마스크 파일 I/O 대기 시간 초과")
 
-    # 마스크 페더링 (경계 자연스럽게)
+    # 마스크: 베이스가 축소됐으면 같은 크기로 맞춘 뒤 페더링 (경계 자연스럽게)
     mask_img = PILImage.open(mask_input_path).convert("L")
+    if fit_size:
+        mask_img = mask_img.resize(fit_size, PILImage.BILINEAR)
     mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=12))
     mask_img.save(mask_input_path)
 
@@ -375,7 +428,7 @@ def run_i2i_mask(image_path: str, mask_path: str, checkpoint: str,
     if seed < 0:
         seed = random.randint(1, 999999999999999)
 
-    workflow["1"]["inputs"]["image"]    = filename
+    workflow["1"]["inputs"]["image"]    = input_name
     workflow["3"]["inputs"]["ckpt_name"] = checkpoint
     workflow["18"]["inputs"]["text"]    = prompt
     workflow["19"]["inputs"]["text"]    = negative

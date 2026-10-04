@@ -9,7 +9,10 @@ from pydantic import BaseModel
 from config.PATH import CHECKPOINT_DIR, WORKFLOW_PATH, COMFY_INPUT
 from config.constants import NEGATIVE_BASE, MODEL_RESOLUTION
 from core.image.generate import run_comfy, run_upscale, load_upscale_workflow, is_comfy_alive, run_i2i, run_i2i_mask
-from core.image.preference import save_generation_start, get_generation_by_prompt_id, update_upscaled_image
+from core.image.preference import (
+    save_generation_start, get_generation_by_prompt_id, update_upscaled_image,
+    update_generation_meta, save_video,
+)
 from core.system.watcher import watch_comfy
 from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comfy
 import random
@@ -22,6 +25,7 @@ from core.system.notify import notify
 router = APIRouter(prefix="/api/sd", tags=["sd"])
 from core.system.notify import notify
 from core.system import jobs
+from core.system import gen_queue
 
 # ── 유틸 ──────────────────────────────────────────────────
 
@@ -59,6 +63,15 @@ def _load_txt(path: str) -> list[str]:
     with open(path, encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
 
+def _dedupe_tags(text: str) -> str:
+    """쉼표 구분 태그에서 중복 제거 (대소문자 무시, 순서 유지)"""
+    seen, out = set(), []
+    for t in (x.strip() for x in text.split(",")):
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return ", ".join(out)
+    
 # ── 스키마 ────────────────────────────────────────────────
 
 class GenerateRequest(BaseModel):
@@ -104,115 +117,142 @@ def comfy_status():
     return {"alive": is_comfy_alive()}
 
 
-@router.post("/generate")
-def generate(req: GenerateRequest):
-    """
-    이미지 생성 — SSE 스트림으로 progress 이벤트 반환
-    event: progress  → {"value": float, "text": str}
-    event: done      → {"gen_id": int, "image_path": str}
-    event: error     → {"message": str}
-    """
-
-    SAMPLER_MAP = {
+SAMPLER_MAP = {
     "Euler a":    "euler_ancestral",
     "Euler":      "euler",
     "DPM++ 2M":   "dpmpp_2m",
     "DDIM":       "ddim",
-    }
-    SCHEDULER_MAP = {
-        "Automatic":    "normal",
-        "SGM Uniform":  "sgm_uniform",
-        "Karras":       "karras",
-    }
+}
+SCHEDULER_MAP = {
+    "Automatic":    "normal",
+    "SGM Uniform":  "sgm_uniform",
+    "Karras":       "karras",
+}
 
+
+def _mark_failed(gen_id: int):
+    from core.db import get_conn
+    with get_conn() as conn:
+        conn.execute("UPDATE generations SET status = 'failed' WHERE id = ?", (gen_id,))
+        conn.commit()
+
+
+def _t2i_events(req: GenerateRequest):
+    """
+    t2i 생성 이벤트 제너레이터
+    yield {"type": "progress", "value": float, "text": str}
+    yield {"type": "done", "gen_id": int, "image_path": str}
+    """
+    print(f"[SD] lora_name={req.lora_name}, lora_strength={req.lora_strength}")
+    if not is_comfy_alive():
+        yield {"type": "progress", "value": 0.0, "text": "ComfyUI 시작 중..."}
+        start_comfy()
+        wait_for_comfy()
+
+    workflow = load_workflow()
+    cfg      = get_model_config(req.checkpoint)
+
+    workflow["4"]["inputs"]["ckpt_name"] = req.checkpoint
+    seed = req.seed if req.seed >= 0 else random.randint(1, 999999999999999)
+    workflow["3"]["inputs"]["seed"] = seed
+
+    # 해상도 (50% 확률 가로/세로 스왑)
+    w, h = cfg["width"], cfg["height"]
+    if random.random() < 0.5:
+        w, h = h, w
+    workflow["5"]["inputs"]["width"]  = w
+    workflow["5"]["inputs"]["height"] = h
+
+    v4_prefix = cfg.get("prefix")
+    if "steps" in cfg:
+        workflow["3"]["inputs"]["steps"] = cfg["steps"]
+        workflow["3"]["inputs"]["cfg"]   = cfg["cfg"]
+    if "sampler_name" in cfg:
+        workflow["3"]["inputs"]["sampler_name"] = SAMPLER_MAP.get(cfg["sampler_name"], "euler_ancestral")
+    if "scheduler" in cfg:
+        workflow["3"]["inputs"]["scheduler"] = SCHEDULER_MAP.get(cfg["scheduler"], "normal")
+    if req.lora_name:
+        from core.image.generate import apply_lora_patch
+        workflow = apply_lora_patch(workflow, req.lora_name, req.lora_strength, positive_node_id="6")
+
+    core_prompt = req.prompt.strip()
+
+    # 이미 모델 prefix로 시작하면 다시 붙이지 않음
+    _n = lambda s: s.replace("_", " ").lower()
+    if v4_prefix and not _n(core_prompt).startswith(_n(v4_prefix)):
+        user_prompt = f"{v4_prefix}, {core_prompt}"
+    else:
+        user_prompt = core_prompt
+    workflow["6"]["inputs"]["text"] = user_prompt
+
+    # 네거티브
+    neg_input = req.negative.strip()
+    if NEGATIVE_BASE in neg_input:
+        negative = neg_input
+    else:
+        negative = ", ".join(p for p in [neg_input, NEGATIVE_BASE] if p)
+    negative = _dedupe_tags(negative)
+    workflow["7"]["inputs"]["text"] = negative
+
+    # gen_id 선발급
+    pre_gen_id = save_generation_start("pending", user_prompt, seed, req.checkpoint)
+    workflow["9"]["inputs"]["filename_prefix"] = f"ComfyUI_{pre_gen_id:04d}_generated"
+
+    # 생성 DNA 기록 (실제 워크플로우에 들어간 값 기준)
+    ksampler = workflow["3"]["inputs"]
+    update_generation_meta(
+        pre_gen_id,
+        negative=negative,
+        lora_name=req.lora_name or None,
+        lora_strength=req.lora_strength if req.lora_name else None,
+        width=w, height=h,
+        steps=ksampler.get("steps"), cfg=ksampler.get("cfg"),
+        sampler=ksampler.get("sampler_name"), scheduler=ksampler.get("scheduler"),
+    )
+
+    prompt_id = None
+    try:
+        for event in run_comfy(workflow):
+            if event["type"] == "prompt_id":
+                prompt_id = event["prompt_id"]
+                threading.Thread(
+                    target=watch_comfy,
+                    args=(prompt_id, event["before"], user_prompt, seed, req.checkpoint, pre_gen_id),
+                    daemon=True
+                ).start()
+
+            elif event["type"] == "progress":
+                yield {"type": "progress", "value": event["value"], "text": event["text"]}
+
+            elif event["type"] == "done":
+                gen_record = None
+                for _ in range(20):
+                    gen_record = get_generation_by_prompt_id(prompt_id)
+                    if gen_record:
+                        break
+                    _time.sleep(0.5)
+                gen_id = gen_record["id"] if gen_record else pre_gen_id
+                yield {"type": "done", "gen_id": gen_id, "image_path": event["image_path"]}
+    except Exception:
+        _mark_failed(pre_gen_id)
+        raise
+
+
+@router.post("/generate")
+def generate(req: GenerateRequest):
+    """
+    이미지 생성 — SSE 스트림 (큐를 거치지 않는 직접 호출용)
+    event: progress  → {"value": float, "text": str}
+    event: done      → {"gen_id": int, "image_path": str}
+    event: error     → {"message": str}
+    """
     def stream():
-        
         try:
-            print(f"[SD] lora_name={req.lora_name}, lora_strength={req.lora_strength}")
-            # ComfyUI 자동 기동
-            if not is_comfy_alive():
-                yield f"event: progress\ndata: {json.dumps({'value': 0.0, 'text': 'ComfyUI 시작 중...'})}\n\n"
-                start_comfy()
-                wait_for_comfy()
-
-            workflow = load_workflow()
-            cfg      = get_model_config(req.checkpoint)
-
-            workflow["4"]["inputs"]["ckpt_name"] = req.checkpoint
-            seed = req.seed if req.seed >= 0 else random.randint(1, 999999999999999)
-            workflow["3"]["inputs"]["seed"] = seed
-
-            # 해상도 (50% 확률 가로/세로 스왑)
-            w, h = cfg["width"], cfg["height"]
-            if random.random() < 0.5:
-                w, h = h, w
-            workflow["5"]["inputs"]["width"]  = w
-            workflow["5"]["inputs"]["height"] = h
-
-            # v4 prefix
-            v4_prefix = cfg.get("prefix")
-            if "steps" in cfg:
-                workflow["3"]["inputs"]["steps"] = cfg["steps"]
-                workflow["3"]["inputs"]["cfg"]   = cfg["cfg"]
-            if "sampler_name" in cfg:
-                comfy_sampler = SAMPLER_MAP.get(cfg["sampler_name"], "euler_ancestral")
-                workflow["3"]["inputs"]["sampler_name"] = comfy_sampler
-            if "scheduler" in cfg:
-                comfy_scheduler = SCHEDULER_MAP.get(cfg["scheduler"], "normal")
-                workflow["3"]["inputs"]["scheduler"] = comfy_scheduler
-            if req.lora_name:
-                from core.image.generate import apply_lora_patch
-                workflow = apply_lora_patch(workflow, req.lora_name, req.lora_strength, positive_node_id="6")
-            
-            # 프롬프트 조립 (모드 A: 사용자 입력 / 모드 B: txt 파일 랜덤 조합)
-            print(f"[SD] 받은 prompt: '{req.prompt}', '{req.lora_name}'")
-            if req.prompt.strip():
-                core_prompt = req.prompt.strip()
-                print(f"[SD] 모드 A")
-            else:
-                core_prompt = ""
-                print(f"[SD] 빈 프롬프트")
-
-            # 프롬프트 조립
-            user_prompt = f"{v4_prefix}, {core_prompt}" if v4_prefix else core_prompt
-            workflow["6"]["inputs"]["text"] = user_prompt
-
-            # 네거티브
-            negative = ", ".join(p for p in [req.negative.strip(), NEGATIVE_BASE] if p)
-            workflow["7"]["inputs"]["text"] = negative
-
-            # gen_id 선발급
-            pre_gen_id = save_generation_start("pending", user_prompt, seed, req.checkpoint)
-            workflow["9"]["inputs"]["filename_prefix"] = f"ComfyUI_{pre_gen_id:04d}_generated"
-
-            prompt_id  = None
-            before     = None
-
-            for event in run_comfy(workflow):
-                if event["type"] == "prompt_id":
-                    prompt_id = event["prompt_id"]
-                    before    = event["before"]
-                    threading.Thread(
-                        target=watch_comfy,
-                        args=(prompt_id, before, user_prompt, seed, req.checkpoint, pre_gen_id),
-                        daemon=True
-                    ).start()
-
-                elif event["type"] == "progress":
-                    yield f"event: progress\ndata: {json.dumps({'value': event['value'], 'text': event['text']})}\n\n"
-
-                elif event["type"] == "done":
-                    import time
-                    gen_record = None
-                    for _ in range(20):
-                        gen_record = get_generation_by_prompt_id(prompt_id)
-                        if gen_record:
-                            break
-                        time.sleep(0.5)
-
-                    gen_id = gen_record["id"] if gen_record else pre_gen_id
-                    yield f"event: done\ndata: {json.dumps({'gen_id': gen_id, 'image_path': event['image_path']})}\n\n"
-
+            for ev in _t2i_events(req):
+                if ev["type"] == "progress":
+                    yield f"event: progress\ndata: {json.dumps({'value': ev['value'], 'text': ev['text']})}\n\n"
+                elif ev["type"] == "done":
+                    yield f"event: done\ndata: {json.dumps({'gen_id': ev['gen_id'], 'image_path': ev['image_path']})}\n\n"
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
 
@@ -368,8 +408,28 @@ def i2v(req: I2VRequest):
                 if event["type"] == "progress":
                     jobs.update_progress(job_id, event["value"], event["text"])
                 elif event["type"] == "done":
-                    jobs.finish_job(job_id, {"video_path": event["video_path"]})
-                    notify("I2V 완료", os.path.basename(event["video_path"]), _time.time() - t0)
+                    video_path = event["video_path"]
+                    try:
+                        save_video(
+                            video_path=video_path,
+                            source_image=req.image_path,
+                            prompt=req.prompt,
+                            negative=req.negative,
+                            seed=event.get("seed", req.seed),
+                            width=req.width,
+                            height=req.height,
+                            cfg=req.cfg,
+                            params={
+                                "length": req.length,
+                                "frame_rate": req.frame_rate,
+                                "high_steps": req.high_steps,
+                                "low_steps": req.low_steps,
+                            },
+                        )
+                    except Exception as e:
+                        print(f"[I2V] DB 등록 실패: {e}")
+                    jobs.finish_job(job_id, {"video_path": video_path})
+                    notify("I2V 완료", os.path.basename(video_path), _time.time() - t0)
         except Exception as e:
             jobs.fail_job(job_id, str(e))
             notify("I2V 실패", str(e), _time.time() - t0, ok=False)
@@ -418,3 +478,161 @@ def job_stream(job_id: str):
             _t.sleep(0.5)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+# ── 생성 큐 ───────────────────────────────────────────────
+
+def _lora_label(name: str, strength: float):
+    return f"{name} ({strength})" if name else None
+
+
+def _run_t2i(p: dict):
+    yield from _t2i_events(GenerateRequest(**p))
+
+
+def _run_i2i(p: dict):
+    args = (
+        p["image_path"],
+    )
+    if p.get("mask_path"):
+        gen = run_i2i_mask(
+            p["image_path"], p["mask_path"], p["checkpoint"], p["prompt"], p["negative"],
+            p["denoise"], p["seed"], p["lora_name"], p["lora_strength"],
+        )
+    else:
+        gen = run_i2i(
+            p["image_path"], p["checkpoint"], p["prompt"], p["negative"],
+            p["denoise"], p["seed"], p["lora_name"], p["lora_strength"],
+        )
+    for ev in gen:
+        if ev["type"] == "progress":
+            yield ev
+        elif ev["type"] == "done":
+            yield {"type": "done", "image_path": ev["image_path"],
+                   "filename": os.path.basename(ev["image_path"])}
+
+
+def _run_i2v(p: dict):
+    from core.video.i2v_generate import run_i2v
+    t0 = _time.time()
+    try:
+        for event in run_i2v(
+            p["image_path"], prompt=p["prompt"], negative=p["negative"], seed=p["seed"],
+            width=p["width"], height=p["height"], length=p["length"],
+            high_steps=p["high_steps"], low_steps=p["low_steps"],
+            cfg=p["cfg"], frame_rate=p["frame_rate"],
+        ):
+            if event["type"] == "progress":
+                yield event
+            elif event["type"] == "done":
+                video_path = event["video_path"]
+                try:
+                    save_video(
+                        video_path=video_path,
+                        source_image=p["image_path"],
+                        prompt=p["prompt"], negative=p["negative"],
+                        seed=event.get("seed", p["seed"]),
+                        width=p["width"], height=p["height"], cfg=p["cfg"],
+                        params={
+                            "length": p["length"], "frame_rate": p["frame_rate"],
+                            "high_steps": p["high_steps"], "low_steps": p["low_steps"],
+                        },
+                    )
+                except Exception as e:
+                    print(f"[I2V] DB 등록 실패: {e}")
+                notify("I2V 완료", os.path.basename(video_path), _time.time() - t0)
+                yield {"type": "done", "video_path": video_path}
+    except gen_queue.GenerationCancelled:
+        raise
+    except Exception as e:
+        notify("I2V 실패", str(e), _time.time() - t0, ok=False)
+        raise
+
+
+gen_queue.register_runner("t2i", _run_t2i)
+gen_queue.register_runner("i2i", _run_i2i)
+gen_queue.register_runner("i2v", _run_i2v)
+
+
+@router.post("/queue/t2i")
+def queue_t2i(req: GenerateRequest):
+    summary = {
+        "mode": "t2i", "checkpoint": req.checkpoint,
+        "prompt": req.prompt, "negative": req.negative,
+        "lora": _lora_label(req.lora_name, req.lora_strength),
+    }
+    return {"id": gen_queue.enqueue("t2i", req.dict(), summary)}
+
+
+@router.post("/queue/i2i")
+async def queue_i2i(
+    image_path:    Annotated[str,   Form()],
+    checkpoint:    Annotated[str,   Form()] = "",
+    prompt:        Annotated[str,   Form()] = "",
+    negative:      Annotated[str,   Form()] = "",
+    denoise:       Annotated[float, Form()] = 0.7,
+    seed:          Annotated[int,   Form()] = -1,
+    lora_name:     Annotated[str,   Form()] = "",
+    lora_strength: Annotated[float, Form()] = 0.8,
+    mask_file:     UploadFile = File(None),
+):
+    mask_path = None
+    if mask_file:
+        mask_bytes = await mask_file.read()
+        mask_path = os.path.join(COMFY_INPUT, f"i2i_mask_tmp_{uuid.uuid4().hex}.png")
+        with open(mask_path, "wb") as f:
+            f.write(mask_bytes)
+
+    payload = {
+        "image_path": image_path, "mask_path": mask_path, "checkpoint": checkpoint,
+        "prompt": prompt, "negative": negative, "denoise": denoise, "seed": seed,
+        "lora_name": lora_name, "lora_strength": lora_strength,
+    }
+    summary = {
+        "mode": "i2i", "checkpoint": checkpoint, "prompt": prompt, "negative": negative,
+        "lora": _lora_label(lora_name, lora_strength),
+        "base_image": image_path, "denoise": denoise, "seed": seed,
+        "has_mask": bool(mask_path),
+    }
+    item_id = gen_queue.enqueue("i2i", payload, summary, cleanup=[mask_path] if mask_path else [])
+    return {"id": item_id}
+
+
+@router.post("/queue/i2v")
+def queue_i2v(req: I2VRequest):
+    summary = {
+        "mode": "i2v", "prompt": req.prompt, "negative": req.negative,
+        "base_image": req.image_path, "seed": req.seed,
+        "width": req.width, "height": req.height, "length": req.length,
+        "high_steps": req.high_steps, "low_steps": req.low_steps, "cfg": req.cfg,
+    }
+    return {"id": gen_queue.enqueue("i2v", req.dict(), summary)}
+
+
+@router.get("/queue")
+def get_queue():
+    return {"items": gen_queue.snapshot(), "shutdown": gen_queue.shutdown_state()}
+
+
+class ShutdownRequest(BaseModel):
+    enabled: bool
+
+
+@router.post("/queue/shutdown")
+def set_queue_shutdown(req: ShutdownRequest):
+    gen_queue.set_shutdown(req.enabled)
+    return gen_queue.shutdown_state()
+
+
+@router.post("/queue/shutdown/abort")
+def abort_queue_shutdown():
+    return {"aborted": gen_queue.abort_shutdown()}
+
+
+@router.delete("/queue/{item_id}")
+def delete_queue_item(item_id: str):
+    return {"result": gen_queue.remove(item_id)}
+
+
+@router.delete("/queue")
+def clear_queue():
+    return {"cancelled": gen_queue.clear_pending()}
