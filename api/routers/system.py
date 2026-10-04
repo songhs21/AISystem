@@ -184,6 +184,24 @@ def list_tag_files():
     files = [p.name for p in tag_dir.glob("*.json")]
     return {"files": sorted(files)}
 
+class RevealRequest(BaseModel):
+    path: str
+@router.post("/reveal")
+def reveal_in_explorer(req: RevealRequest):
+    """탐색기에서 해당 파일을 선택한 상태로 열기 (서버 PC에서 열림, Windows 전용)"""
+    import subprocess
+    from config.PATH import COMFY_DIR
+
+    target = Path(os.path.normpath(req.path)).resolve()
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"파일 없음: {target}")
+    if not target.is_relative_to(Path(COMFY_DIR).resolve()):
+        raise HTTPException(status_code=403, detail="ComfyUI 폴더 밖의 경로는 열 수 없음")
+
+    # explorer는 성공해도 종료 코드가 1이라 check하지 않음
+    subprocess.Popen(f'explorer /select,"{target}"')
+    return {"ok": True}
+
 @router.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
     """이미지를 COMFY_INPUT에 저장하고 경로 반환"""

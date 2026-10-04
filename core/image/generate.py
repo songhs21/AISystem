@@ -21,6 +21,9 @@ import json as _json
 from config.PATH import LORA_TRIGGERS
 from core.system.gen_queue import GenerationCancelled
 
+WS_POLL_SEC = 30        # recv 타임아웃(생존 확인 주기)
+WS_MAX_IDLE_SEC = 1800  # 이벤트가 이 시간 동안 없으면 실패 처리
+
 # ── 워크플로우 로드 ───────────────────────────────────────
 
 def load_upscale_workflow() -> dict:
@@ -52,9 +55,24 @@ def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95, prompt_
     WebSocket에서 progress 이벤트를 수신하며 yield.
     prompt_id가 주어지면 해당 프롬프트 이벤트만 처리.
     """
+    ws.settimeout(WS_POLL_SEC)
+    last_msg = time.time()
     try:
         while True:
-            raw = ws.recv()
+            try:
+                raw = ws.recv()
+            except websocket.WebSocketTimeoutException:
+                if not is_comfy_alive():
+                    raise RuntimeError("ComfyUI 응답 없음 (프로세스 종료 또는 연결 끊김)")
+                if time.time() - last_msg > WS_MAX_IDLE_SEC:
+                    try:
+                        requests.post(f"{COMFY_URL}/interrupt", timeout=5)
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"ComfyUI 무응답 {WS_MAX_IDLE_SEC // 60}분 초과")
+                continue
+
+            last_msg = time.time()
             if isinstance(raw, bytes):
                 continue
             msg   = json.loads(raw)
@@ -90,7 +108,7 @@ def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95, prompt_
 
             elif mtype == "execution_error":
                 raise RuntimeError(f"ComfyUI 실행 오류: {data.get('exception_message', '알 수 없음')}")
-            
+
             elif mtype == "executing":
                 if prompt_id and data.get("prompt_id") != prompt_id:
                     continue

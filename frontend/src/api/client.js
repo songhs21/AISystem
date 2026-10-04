@@ -97,4 +97,6 @@ export const systemApi = {
     form.append('file', file)
     return client.post('/api/system/upload', form)
   },
+  reveal: (path) => client.post('/api/system/reveal', { path }),
+  
 }

@@ -1,7 +1,7 @@
 // src/pages/HistoryPage.jsx
 import { useState, useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { historyApi, sdApi } from '../api/client'
+import { historyApi, sdApi, systemApi } from '../api/client'
 import { API_BASE } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
 import ImageViewer from '../components/ImageViewer'
@@ -10,11 +10,24 @@ import TagPanel from '../components/TagPanel'
 import { dedupeTags } from '../utils/tags'
 
 const PAGE_SIZE = 10
+const MEDIA_OPTIONS = [['all', '전체'], ['image', '이미지'], ['video', '영상']]
 
 const PASS_FILTER_OPTIONS = ['전체', '그림체', '인체 디테일', '마음에 들지 않음']
 const PASS_TYPE_MAP = { '그림체': 'style', '인체 디테일': 'quality', '마음에 들지 않음': 'dislike' }
 const SCORE_OPTIONS = ['적용 안함', '피드백 없음', '이상', '이하', '동일']
 
+function MediaTypeFilter({ value, onChange }) {
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {MEDIA_OPTIONS.map(([key, label]) => (
+        <button key={key} className="btn btn-ghost"
+          style={{ padding: '3px 8px', fontSize: 11, ...(value === key ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+          onClick={() => onChange(key)}
+        >{label}</button>
+      ))}
+    </div>
+  )
+}
 
 export default function HistoryPage({ onQuote }) {
   const queryClient = useQueryClient()
@@ -64,9 +77,15 @@ export default function HistoryPage({ onQuote }) {
     enabled: genIds.length > 0,
   })
 
+  const [mediaType, setMediaType] = useState('all')
   // 클라이언트 사이드 필터 (즉각 반응)
   const filtered = useMemo(() => {
     let list = generations
+
+    // 종류 필터
+    if (mediaType !== 'all') {
+      list = list.filter(g => (g.media_type === 'video') === (mediaType === 'video'))
+    }
 
     // 태그 필터
     list = list.filter(gen => {
@@ -98,7 +117,7 @@ export default function HistoryPage({ onQuote }) {
     }
 
     return list
-  }, [generations, feedbackMap, excludedTags, includedTags, includeMode, passFilter, scoreMode, scoreVal])
+  }, [generations, feedbackMap, mediaType, excludedTags, includedTags, includeMode, passFilter, scoreMode, scoreVal])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -167,6 +186,7 @@ export default function HistoryPage({ onQuote }) {
         <button className="btn btn-ghost" onClick={() => setShowVideos(v => !v)}>
           {showVideos ? '🎬 영상 숨기기' : '🎬 영상 보기'}
         </button>
+        <MediaTypeFilter value={mediaType} onChange={v => { setMediaType(v); setPage(1) }} />
         <button className="btn btn-ghost" onClick={() => setShowFilter(v => !v)}>
           🔍 필터 {showFilter ? '닫기' : '설정'}
         </button>
@@ -179,7 +199,10 @@ export default function HistoryPage({ onQuote }) {
       {showFilter && (
         <div className="card" style={{ margin: '8px 16px', flexShrink: 0 }}>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-
+            <div>
+              <label>종류</label>
+              <MediaTypeFilter value={mediaType} onChange={v => { setMediaType(v); setPage(1) }} />
+            </div>
             {/* 패스 필터 */}
             <div>
               <label>패스 유형</label>
@@ -290,6 +313,13 @@ export default function HistoryPage({ onQuote }) {
                       {feedback.pass_type && <span style={{ color: 'var(--danger)' }}>패스: {feedback.pass_type}</span>}
                     </div>
                   )}
+
+                  <div>
+                    <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}
+                      onClick={() => systemApi.reveal(isVideo ? gen.video_path : gen.image_path)
+                        .catch(e => alert(e.response?.data?.detail || e.message))}
+                    >📂 폴더에서 열기</button>
+                  </div>
 
                   {/* 업스케일 상태 */}
                   {!isVideo && (
@@ -600,7 +630,7 @@ function GenerationDna({ gen, onQuote }) {
           ? (isVideo
               ? <div style={{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'pre-wrap' }}>{negative}</div>
               : <PromptChips text={negative} />)
-          : <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>기록 없음 (DNA 저장 이전 생성분)</div>}
+          : <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>기록 없음</div>}
         {!isVideo && negative && (
           <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', marginTop: 4 }}
             onClick={() => onQuote?.({ negative: gen.negative })}>

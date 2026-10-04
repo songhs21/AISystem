@@ -80,6 +80,4 @@ export function useSSE() {
   }, [])
 
   return { progress, statusText, running, error, run, abort, reset }
-
-  return { progress, statusText, running, error, run, abort }
 }

@@ -890,3 +890,71 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 - 한계: 꺼지는 PC는 백엔드가 실행 중인 PC. Windows 전용. 서버를 수동 종료하면 이미 걸린 Windows 종료 예약은 남으므로 `shutdown /a`로 취소
 - 검증: 미확인 (종료 취소까지 테스트 필요)
 - 변경 파일: `core/system/gen_queue.py`, `api/routers/sd.py`, `src/api/client.js`, `src/components/QueueStrip.jsx`, `src/pages/GeneratePage.jsx`
+
+
+## v1.8.0
+
+### 54. 이미지 탭 신설 + 뷰포트 생성 버튼
+- 변경: 옵션 서랍 상단을 `🖼️ 이미지 / 🎬 영상` 탭으로 나누고 이미지 탭 아래에 `t2i / i2i` 서브 토글을 배치. `DropdownModePanel`을 `T2iModePanel`로 명칭 변경(localStorage 키는 유지). 패널별 생성 버튼을 없애고 뷰포트 하단 생성 버튼 하나로 통합(탭에 따라 이미지/영상 라벨)
+- 문제/배경: 생성 큐 도입으로 패널의 `generate()`가 payload 생성 + `onEnqueue` 호출로 단순해져 핸들러를 상위로 올리기 쉬워짐
+- 결정: 패널이 매 렌더마다 `bindGenerate(handler, enabled)`로 현재 핸들러와 활성 여부를 올리고, 뷰포트 버튼이 ref로 호출. 이미지 탭으로 돌아오면 마지막 서브 모드 복원
+- 이유: 확인 필요
+- 변경 파일: GeneratePage.jsx
+
+### 55. 생성 버튼·프로그레스 한 줄 배치 (사용자 제안)
+- 변경: 뷰포트 하단 첫 줄을 왼쪽 프로그레스 70 : 오른쪽 생성 버튼 30으로 배치. 프로그레스는 진행 항목 선택 여부와 무관하게 항상 표시(진행 없으면 "대기 중")
+- 결정: 중앙의 큰 프로그레스와 하단 프로그레스가 동시에 표시되는 중복은 허용
+- 이유: 확인 필요
+- 변경 파일: GeneratePage.jsx
+
+### 56. DNA 서랍 토글 + 뷰포트 하단 패딩 동적화 (사용자 제안)
+- 변경: 대기열 토글과 같은 형태의 하단 탭 버튼으로 생성물 DNA(메타) 박스를 열고 닫음. 박스는 화면 아래 바깥에서 올라오고 내려가는 슬라이드. 이미지 영역 하단 패딩은 하단 오버레이 높이를 ResizeObserver로 측정해 동적으로 계산(고정 130/230px 제거). `dnaOpen`은 localStorage 저장. `ImageViewer`는 컨테이너 크기 변경 시 중앙으로 재정렬(사용자가 줌/패닝한 뒤에는 유지)
+- 문제/배경: 고정 패딩으로는 에러 박스 등장·DNA 박스 높이 변화에 대응 불가. 컨테이너 크기가 바뀌어도 `ImageViewer`가 로드 시점에만 중앙 오프셋을 계산해 이미지가 어긋남
+- 이유: 확인 필요
+- 변경 파일: GeneratePage.jsx, ImageViewer.jsx
+
+### 57. localStorage 저장 훅 정리 + 체크포인트 저장 (사용자 제안)
+- 변경: `useState` + 저장 `useEffect` 쌍을 `usePersistentState` 훅으로 통합(`dropSelections`, `dropRandom`, `dropRandomFixed`, `promptOrder`는 기존 키 유지). 체크포인트도 저장. 저장된 체크포인트가 목록에서 사라졌으면 기본값으로 복귀
+- 이유: 확인 필요
+- 변경 파일: hooks/usePersistentState.js(신규), GeneratePage.jsx
+
+### 58. 좌/우 패널 슬라이드 + 패널 크기 조정 (사용자 제안)
+- 변경: 옵션 서랍과 태그 패널도 DNA 서랍과 같은 슬라이드 애니메이션(언마운트 없이 transform + visibility). 옵션 서랍 너비·태그 패널 너비·대기열 카드 크기를 드래그로 조정, 더블클릭으로 기본값 복귀, 모두 localStorage 저장. 드래그 중에는 전환 애니메이션 비활성
+- 결정: 대기열은 패널 높이 드래그가 썸네일 카드 크기를 바꾸는 방식으로 해석(카드가 고정 88px 가로 스크롤 구조)
+- 이유: 확인 필요
+- 변경 파일: GeneratePage.jsx, QueueStrip.jsx, hooks/useDragResize.js(신규), components/ResizeHandle.jsx(신규)
+
+### 59. GeneratePage 잔여 정리
+- 변경: 미사용 코드 제거(`useSSE`·`run`·`displayRunning`, `job*` state, 주석 처리된 `attachJob`/`startI2v`/`reattach`, `buildFuse`), 미사용 props 제거(`T2iModePanel`의 `result·setResult·setMeta·tags·setTags·usedPrompt·setUsedPrompt·onGenerated·setTagPanelOpen·koMap`, `I2iModePanel`의 `setResult·setMeta`), `SortableTag`를 모듈 레벨로 이동, i2i의 항상 통과하던 `fromHistory` 분기와 낡은 "업로드 엔드포인트 미구현" 알림 제거
+- 문제/배경: `run` 안의 `sseReset()`는 정의되지 않은 참조. `SortableTag`가 컴포넌트 안에 정의되어 렌더마다 새 컴포넌트 타입이 생김
+- 결정: 동작 변경 없는 정리만 수행. i2i `레퍼런스` 슬롯(전송되지 않는 빈 UI)은 보류
+- 이유: 확인 필요
+- 변경 파일: GeneratePage.jsx
+
+### 60. 히스토리 이미지/영상 종류 필터 (사용자 결정)
+- 변경: `전체 / 이미지 / 영상` 필터를 툴바 버튼과 필터 패널에 모두 두고 `mediaType` state를 공유. 기존 `이미지/영상 보기·숨기기` 버튼은 카드를 유지한 채 미디어 표시만 끄는 별개 기능으로 유지
+- 결정: 별도 버튼과 필터 패널 통합 중 하나를 고르지 않고 둘 다 제공
+- 이유: 확인 필요
+- 변경 파일: HistoryPage.jsx
+
+### 61. ComfyUI 웹소켓 무응답 처리
+- 변경: `_ws_progress`에 `settimeout(30)`. 타임아웃 시 `is_comfy_alive()`로 생존 확인 후 죽었으면 실패 처리, 살아 있으면 계속 대기하되 무이벤트가 30분을 넘으면 `/interrupt` 후 실패 처리. 이벤트(바이너리 미리보기 포함)가 오면 타이머 갱신
+- 문제/배경: `ws.recv()`가 타임아웃 없이 블로킹되어 ComfyUI가 멈추면 단일 워커가 해당 항목에서 영구 대기하고 이후 큐가 전부 막힘
+- 결정: 상한값(30분)이 적정한지는 사용자 확인 대기. 상한은 총 생성 시간이 아니라 한 노드 안에서 이벤트 없이 걸리는 가장 긴 구간(모델 로딩, 샘플러 1스텝, VAE 디코드) 기준
+- 대안: 단순 `settimeout(60)` — 모델 로딩 등 정상 무이벤트 구간에서 오탐하므로 미채택
+- 이유: 큐 정지 방지(위 배경). 상한값 근거는 확인 필요
+- 변경 파일: generate.py
+
+### 62. LLM 전송 실패 시 입력 유지 + 중단/전송 버튼 통합 (사용자 제안)
+- 변경: 입력란과 첨부를 전송 시점에 비우지 않고 첫 토큰 수신 시 비움. 전송 중 입력란은 읽기 전용, 첨부 관련 버튼 비활성. 토큰 전에 실패/중단하면 낙관적으로 추가한 메시지 2개를 제거하고 입력/첨부 유지. 스크롤 영역 아래의 중단/전송 버튼을 삭제하고 입력란 옆 버튼 하나로 통합(전송 중에는 중단)
+- 문제/배경: 실패해도 입력이 비워져 메시지와 첨부가 사라짐. Ollama 호출 실패는 HTTP 200 안의 SSE `error` 이벤트로 오므로 응답 상태로 성공 판정 불가. 서버는 토큰이 있을 때만 저장
+- 결정: 성공 기준을 첫 토큰 수신으로 지정. 토큰이 일부 온 뒤 실패하면 서버에 저장되므로 부분 답변을 남김
+- 대안: 입력란은 즉시 비우고 실패 시 복원하는 방식 — 전송 중 사용자가 새로 입력한 내용과 충돌해 미채택
+- 이유: 사용자 제안(성공 응답 후 초기화로 고쳐도 되며 전송 중 입력 수정 불가)
+- 변경 파일: LLMPage.jsx
+
+### 63. 히스토리 "폴더에서 열기" (사용자 제안)
+- 변경: 히스토리 카드(이미지·영상)에 `📂 폴더에서 열기` 버튼. `POST /api/system/reveal`이 탐색기를 파일 선택 상태로 실행
+- 결정: ComfyUI 폴더 하위 경로만 허용, 파일이 없으면 404. 탐색기는 서버 PC에서 열리므로 외부 접속에서는 의미 없음. 이미지는 원본 파일 기준(업스케일 파일 전용 버튼 없음)
+- 이유: 확인 필요
+- 변경 파일: system.py, client.js, HistoryPage.jsx

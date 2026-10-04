@@ -8,7 +8,6 @@ import {
   API_BASE,
   systemApi
 } from '../api/client'
-import { useSSE } from '../hooks/useSSE'
 import TagPanel from '../components/TagPanel'
 import ImageViewer from '../components/ImageViewer'
 import Fuse from 'fuse.js'
@@ -29,10 +28,14 @@ import { CSS } from '@dnd-kit/utilities'
 import { CATEGORY_CONFIG, CATEGORY_ORDER } from '../constants/tagConfig'
 import { dedupeTags } from '../utils/tags'
 import QueueStrip, { itemMeta } from '../components/QueueStrip'
+import { usePersistentState } from '../hooks/usePersistentState'
+import { useDragResize } from '../hooks/useDragResize'
+import ResizeHandle from '../components/ResizeHandle'
 
 // 오른쪽 태그 패널 폭 (뷰포트 밀림 / 패널 / 토글 버튼 위치에 공통 사용)
-const TAG_PANEL_W = 'max(35%, 320px)'
-
+const DNA_TAB_H = 30                   // 하단 DNA 토글 탭 높이
+const OVERLAY_BOTTOM = DNA_TAB_H + 6   // 하단 오버레이가 뷰포트 바닥에서 떨어진 거리
+const ANIM = '0.25s ease'
 // ─── 유틸 함수 ───────────────────────────────────────────────────
 function getByPath(obj, path) {
   return path.split('.').reduce((acc, k) => acc?.[k], obj)
@@ -94,8 +97,11 @@ function PromptTags({ prompt }) {
 
 // ─── 메인 컴포넌트 ───────────────────────────────────────────────
 export default function GeneratePage({ quote }) {
-  const [mode, setMode] = useState('dropdown')
-  const [checkpoint, setCheckpoint] = useState('')
+  const [mode, setMode] = useState('T2I')          // 'T2I' | 'I2I' | 'video'
+  const imageModeRef = useRef('T2I') // 이미지 탭에서 마지막으로 쓴 서브 모드
+  const tab = mode === 'video' ? 'video' : 'image'
+
+  const [checkpoint, setCheckpoint] = usePersistentState('checkpoint', '')
   const [result, setResult] = useState(null)
   const [meta, setMeta] = useState(null)
   const [i2iOverlay, setI2iOverlay] = useState(null)
@@ -105,19 +111,48 @@ export default function GeneratePage({ quote }) {
   const [tagPanelOpen, setTagPanelOpen] = useState(false)
   const [pendingQuote, setPendingQuote] = useState(null)
 
-  const { progress, statusText, running, error, run: sseRun } = useSSE()
-
-  const [jobRunning, setJobRunning]   = useState(false)
-  const [jobProgress, setJobProgress] = useState(0)
-  const [jobStatus, setJobStatus]     = useState('')
-  const [jobError, setJobError]       = useState(null)
-  const jobAbortRef = useRef(null)
   // ── 생성 대기열 (서버 큐 폴링) ──
   const [queueOpen, setQueueOpen] = useState(true)
   const [queueActive, setQueueActive] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
   const followRef = useRef(true)      // 새로 완료된 항목을 자동으로 보여줄지
   const seenDoneRef = useRef(null)    // 이미 확인한 완료 항목 id (null = 첫 로드 전)
+  const [dnaOpen, setDnaOpen] = usePersistentState('dnaOpen', true)
+  const overlayRef = useRef(null)
+  const [overlayH, setOverlayH] = useState(0)
+  const [leftW, setLeftW]       = usePersistentState('leftDrawerW', 380)
+  const [tagPanelW, setTagPanelW] = usePersistentState('tagPanelW', Math.max(320, Math.round(window.innerWidth * 0.35)))
+  const [queueCardSize, setQueueCardSize] = usePersistentState('queueCardSize', 88)
+  const [resizing, setResizing] = useState(false)
+  const tr = s => (resizing ? 'none' : s)   // 드래그 중에는 전환 애니메이션 끄기
+
+  const leftResize  = useDragResize({ value: leftW,     onChange: setLeftW,     min: 300, max: 720, axis: 'x', dir: 1,  onDragChange: setResizing })
+  const rightResize = useDragResize({ value: tagPanelW, onChange: setTagPanelW, min: 280, max: 800, axis: 'x', dir: -1, onDragChange: setResizing })
+
+  useEffect(() => {
+    const el = overlayRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setOverlayH(el.offsetHeight))
+    ro.observe(el)
+    setOverlayH(el.offsetHeight)
+    return () => ro.disconnect()
+  }, [])
+
+  const dnaRef = useRef(null)
+  const [dnaH, setDnaH] = useState(0)
+
+  useEffect(() => {
+    const el = dnaRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setDnaH(el.offsetHeight))
+    ro.observe(el)
+    setDnaH(el.offsetHeight)
+    return () => ro.disconnect()
+  }, [])
+
+  // DNA 서랍이 열려서 차지하는 높이 (닫히거나 meta 없으면 0)
+  const dnaShift = dnaOpen && meta ? dnaH : 0
+
 
   const { data: queueData, refetch: refetchQueue } = useQuery({
     queryKey: ['gen-queue'],
@@ -133,14 +168,6 @@ export default function GeneratePage({ quote }) {
   const selectedItem = queueItems.find(i => i.id === selectedId)
   const showRunningCenter = selectedItem && ['running', 'cancelling'].includes(selectedItem.status)
 
-  // 이미지 생성(SSE) 시작 시 이전 영상 job 상태 초기화
-  const run = useCallback((...args) => {
-    setJobProgress(0)
-    setJobStatus('')
-    setJobError(null)
-    sseReset()
-    return sseRun(...args)
-  }, [sseRun])
 
   // 태그 패널 전용 state (드롭박스 결과에만 사용)
   const [tags, setTags] = useState([])
@@ -156,9 +183,14 @@ export default function GeneratePage({ quote }) {
     queryFn: () => sdApi.checkpoints().then(r => r.data),
   })
   const checkpoints = cpData?.checkpoints || []
+
   useEffect(() => {
-    if (checkpoints.length && !checkpoint) setCheckpoint(checkpoints[1])
-  }, [checkpoints])
+  if (!checkpoints.length) return
+  // 저장된 값이 없거나 목록에서 사라진 파일이면 기본값으로
+  if (!checkpoint || !checkpoints.includes(checkpoint)) {
+    setCheckpoint(checkpoints[1] ?? checkpoints[0])
+  }
+}, [checkpoints])
 
   const { data: tagFileData = {} } = useQuery({
     queryKey: ['tag-file-data'],
@@ -190,89 +222,9 @@ export default function GeneratePage({ quote }) {
     staleTime: Infinity,
   }).data || {}
 
-  // async function attachJob(jobId) {
-  //   if (jobAbortRef.current) jobAbortRef.current.abort()
-  //   const controller = new AbortController()
-  //   jobAbortRef.current = controller
-
-  //   setJobRunning(true)
-  //   setJobProgress(0)
-  //   setJobStatus('')
-  //   setJobError(null)
-
-  //   try {
-  //     const res = await fetch(sdApi.jobStreamUrl(jobId), { signal: controller.signal })
-  //     const reader = res.body.getReader()
-  //     const decoder = new TextDecoder()
-  //     let buffer = ''
-  //     let eventType = null
-
-  //     while (true) {
-  //       const { done, value } = await reader.read()
-  //       if (done) break
-  //       buffer += decoder.decode(value, { stream: true })
-  //       const lines = buffer.split('\n')
-  //       buffer = lines.pop()
-
-  //       for (const line of lines) {
-  //         if (line.startsWith('event: ')) {
-  //           eventType = line.slice(7).trim()
-  //         } else if (line.startsWith('data: ')) {
-  //           const data = JSON.parse(line.slice(6))
-  //           if (eventType === 'progress') {
-  //             setJobProgress(data.value)
-  //             setJobStatus(data.text)
-  //           } else if (eventType === 'done') {
-  //             setJobProgress(1)
-  //             setJobStatus('완료!')
-  //             setResult({ ...data, isVideo: true })
-  //           } else if (eventType === 'error') {
-  //             setJobError(data.message)
-  //           }
-  //           eventType = null
-  //         }
-  //       }
-  //     }
-  //   } catch (e) {
-  //     if (e.name !== 'AbortError') setJobError(e.message)
-  //   } finally {
-  //     setJobRunning(false)
-  //   }
-  // }
-
-  // async function startI2v(payload, metaInfo) {
-  //   setResult(null)
-  //   setMeta(metaInfo)
-  //   try {
-  //     const res = await client.post('/api/sd/i2v', payload)
-  //     await attachJob(res.data.job_id)
-  //   } catch (e) {
-  //     setJobError(e.response?.data?.detail || e.message)
-  //   }
-  // }
-
-  // useEffect(() => {
-  //   let cancelled = false
-  //   async function reattach() {
-  //     try {
-  //       const res = await sdApi.activeJobs('i2v')
-  //       const list = res.data.jobs || []
-  //       const target = list.find(j => j.status === 'running')
-  //       if (target && !cancelled) {
-  //         setMode('video')
-  //         attachJob(target.id)
-  //       }
-  //     } catch (e) {
-  //       console.error('작업 재연결 조회 실패:', e)
-  //     }
-  //   }
-  //   reattach()
-  //   return () => { cancelled = true; jobAbortRef.current?.abort() }
-  // }, [])
-
   useEffect(() => {
     if (!quote) return
-    setMode('dropdown')
+    selectMode('T2I')
     setLeftDrawerOpen(true)
 
     if (quote.checkpoint) {
@@ -289,6 +241,16 @@ export default function GeneratePage({ quote }) {
     setHistoryPickerTarget(() => onPickCallback)
     setShowHistoryPicker(true)
   }
+  // 탭 토글
+  function selectTab(t) {
+    setMode(t === 'video' ? 'video' : imageModeRef.current)
+  }
+  function selectMode(m) {
+    if (m !== 'video') imageModeRef.current = m
+    setMode(m)
+  }
+
+
 
   async function saveFeedback() {
     if (!result) return
@@ -402,9 +364,13 @@ export default function GeneratePage({ quote }) {
   }
 
   const isVideo = result?.isVideo
-  const displayRunning = running || jobRunning
   const hasTags = tags.length > 0
-
+  const generateRef = useRef(null)
+  const [canGenerate, setCanGenerate] = useState(false)
+  const bindGenerate = useCallback((fn, enabled) => {
+    generateRef.current = fn
+    setCanGenerate(prev => (prev === enabled ? prev : enabled))
+  }, [])
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', overflow: 'hidden' }}>
 
@@ -419,6 +385,8 @@ export default function GeneratePage({ quote }) {
         shutdown={shutdown}
         onToggleShutdown={handleToggleShutdown}
         onAbortShutdown={handleAbortShutdown}
+        cardSize={queueCardSize}
+        onCardSizeChange={setQueueCardSize}
       />
 
       {/* 뷰포트 + 서랍 영역 */}
@@ -427,14 +395,16 @@ export default function GeneratePage({ quote }) {
       {/* 뷰포트 (오른쪽 태그 패널이 열리면 밀림) — 이미지는 이 영역 전체를 사용 */}
         <div style={{
           position: 'absolute', inset: 0,
-          right: tagPanelOpen ? TAG_PANEL_W : 0,
-          transition: 'right 0.2s ease',
+          right: tagPanelOpen ? tagPanelW : 0,
+          transition: tr(`right ${ANIM}`),
           overflow: 'hidden',
           background: 'var(--bg2)',
         }}>
           {/* 이미지 / 영상: 중앙 패널 전 영역 */}
           <div style={{
-            position: 'absolute', inset: 0, padding: '5px 5px 130px 5px ',
+            position: 'absolute', inset: 0,
+            padding: `5px 5px ${overlayH + dnaShift + OVERLAY_BOTTOM + 5}px 5px`,
+            transition: `padding ${ANIM}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
             {result ? (
@@ -463,28 +433,47 @@ export default function GeneratePage({ quote }) {
           </div>
 
           {/* 하단 오버레이: 진행률 / 에러 / 메타 (이미지 드래그를 가로막지 않도록 pointerEvents 분리) */}
-          <div style={{
-            position: 'absolute', bottom: 16, right: 16,
-            left: leftDrawerOpen ? 396 : 16,
-            transition: 'left 0.2s ease',
-            zIndex: 5,
-            display: 'flex', flexDirection: 'column', gap: 6,
-            pointerEvents: 'none',
-          }}>
-            {activeItem && activeItem.id !== selectedId && (
-              <div style={{
-                display: 'flex', flexDirection: 'column', gap: 4,
-                padding: '6px 10px', borderRadius: 8,
-                background: 'rgba(36,36,36,0.85)', border: '1px solid var(--border)',
-              }}>
-                <div className="progress-bar">
-                  <div className="progress-bar-fill" style={{ width: `${(activeItem.progress || 0) * 100}%` }} />
+          <div
+            ref={overlayRef}
+            style={{
+              position: 'absolute', bottom: OVERLAY_BOTTOM, right: 16,
+              left: leftDrawerOpen ? leftW + 16 : 16,
+              transition: tr(`bottom ${ANIM}, left ${ANIM}`),
+              zIndex: 5,
+              display: 'flex', flexDirection: 'column', gap: 6,
+              pointerEvents: 'none',
+            }}
+          >
+            {/* 프로그레스(70) + 생성 버튼(30) */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              <div style={{ flex: 7, minWidth: 0 }}>
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: 4,
+                  padding: '6px 10px', borderRadius: 8,
+                  background: 'rgba(36,36,36,0.85)', border: '1px solid var(--border)',
+                }}>
+                  <div className="progress-bar">
+                    <div className="progress-bar-fill" style={{ width: `${(activeItem?.progress || 0) * 100}%` }} />
+                  </div>
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                    {activeItem
+                      ? `[${activeItem.kind}] ${activeItem.status === 'cancelling' ? '취소 중...' : activeItem.text}`
+                      : '대기 중'}
+                  </span>
                 </div>
-                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                  [{activeItem.kind}] {activeItem.status === 'cancelling' ? '취소 중...' : activeItem.text}
-                </span>
               </div>
-            )}
+
+              <div style={{ flex: 3, minWidth: 0, display: 'flex', pointerEvents: 'auto' }}>
+                <button
+                  className="btn btn-primary"
+                  disabled={!canGenerate}
+                  onClick={() => generateRef.current?.()}
+                  style={{ flex: 1, padding: '8px 12px', fontSize: 13, whiteSpace: 'nowrap' }}
+                >
+                  {tab === 'video' ? '🎬 영상 생성' : '🖼️ 이미지 생성'}
+                </button>
+              </div>
+            </div>
 
             {lastError && (
               <div style={{
@@ -494,21 +483,6 @@ export default function GeneratePage({ quote }) {
               }}>⚠ [{lastError.kind}] {lastError.error}</div>
             )}
 
-            {meta && (
-              <div style={{
-                background: 'rgba(36,36,36,0.85)', border: '1px solid var(--border)',
-                borderRadius: 8, padding: 10, fontSize: 11, color: 'var(--text-dim)',
-                maxHeight: 100, overflow: 'auto', pointerEvents: 'auto',
-              }}>
-                {Object.entries(meta).map(([k, v]) => (
-                  v !== undefined && v !== '' && (
-                    <span key={k} style={{ marginRight: 12 }}>
-                      <span style={{ color: 'var(--text)' }}>{k}</span>: {String(v)}
-                    </span>
-                  )
-                ))}
-              </div>
-            )}
           </div>
         </div>
 
@@ -517,7 +491,7 @@ export default function GeneratePage({ quote }) {
           onClick={() => setLeftDrawerOpen(v => !v)}
           style={{
             position: 'absolute', top: 0,
-            left: leftDrawerOpen ? 380 : 0,
+            left: leftDrawerOpen ? leftW : 0,
             zIndex: 60,
             width: 60, height: 60,
             border: '1px solid var(--border)', borderTop: 'none', borderLeft: leftDrawerOpen ? 'none' : undefined,
@@ -525,32 +499,49 @@ export default function GeneratePage({ quote }) {
             background: 'var(--bg2)', color: 'var(--text-dim)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 16, cursor: 'pointer',
-            transition: 'left 0.2s ease',
+            transition: tr(`left ${ANIM}`),
           }}
         >
           {leftDrawerOpen ? '◀ 접기' : '옵션 ▶'}
         </button>
 
-        {/* 왼쪽 서랍 (오버레이, 뷰포트 안 밀림) */}
+        {/* 왼쪽 서랍: 화면 왼쪽 바깥에서 밀고 들어옴 (언마운트하지 않고 transform으로만 숨김) */}
         <div style={{
           position: 'absolute', top: 0, left: 0, bottom: 0, zIndex: 50,
-          width: 380, maxWidth: '90vw',
+          width: leftW, maxWidth: '90vw',
           background: 'var(--bg2)', borderRight: '1px solid var(--border)',
-          boxShadow: '4px 0 16px rgba(0,0,0,0.3)',
-          display: leftDrawerOpen ? 'flex' : 'none',
-          flexDirection: 'column',
+          boxShadow: leftDrawerOpen ? '4px 0 16px rgba(0,0,0,0.3)' : 'none',
+          display: 'flex', flexDirection: 'column',
           paddingTop: 16,
+          transform: leftDrawerOpen ? 'translateX(0)' : 'translateX(-100%)',
+          visibility: leftDrawerOpen ? 'visible' : 'hidden',
+          transition: tr(leftDrawerOpen
+            ? `transform ${ANIM}, visibility 0s`
+            : `transform ${ANIM}, visibility 0s linear 0.25s`),
         }}>
-          {/* 모드 전환 */}
-          <div style={{ display: 'flex', gap: 4, padding: '0 12px 10px' }}>
-            {['dropdown', 'i2i', 'video'].map(m => (
-              <button key={m} className="btn btn-ghost"
-                style={{ fontSize: 11, padding: '4px 10px', ...(mode === m ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
-                onClick={() => setMode(m)}>
-                {m === 'dropdown' ? '🔽' : m === 'i2i' ? '🖼️' : '🎬'}
+          <ResizeHandle axis="x" style={{ right: 0 }} {...leftResize} onDoubleClick={() => setLeftW(380)} />
+        
+          {/* 탭 전환 */}
+          <div style={{ display: 'flex', gap: 4, padding: '0 12px 6px' }}>
+            {[['image', '🖼️ 이미지'], ['video', '🎬 영상']].map(([key, label]) => (
+              <button key={key} className="btn btn-ghost"
+                style={{ fontSize: 12, padding: '4px 12px', ...(tab === key ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                onClick={() => selectTab(key)}>
+                {label}
               </button>
             ))}
           </div>
+          {tab === 'image' && (
+            <div style={{ display: 'flex', gap: 4, padding: '0 12px 10px' }}>
+              {[['T2I', 'T2I'], ['I2I', 'I2I']].map(([key, label]) => (
+                <button key={key} className="btn btn-ghost"
+                  style={{ fontSize: 11, padding: '3px 10px', ...(mode === key ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                  onClick={() => selectMode(key)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {mode !== 'video' && (
             <div style={{ padding: '0 12px 10px' }}>
@@ -562,20 +553,13 @@ export default function GeneratePage({ quote }) {
           )}
 
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', padding: '0 12px 12px' }}>
-            {mode === 'dropdown' && (
-              <DropdownModePanel
+            {mode === 'T2I' && (
+              <T2iModePanel
                 checkpoint={checkpoint}
                 tagFileData={tagFileData}
-                koMap={koMap}
                 allWeights={allWeights}
                 onEnqueue={enqueue}
-                result={result}
-                setResult={setResult}
-                setMeta={setMeta}
-                tags={tags} setTags={setTags}
-                usedPrompt={usedPrompt} setUsedPrompt={setUsedPrompt}
-                setTagPanelOpen={setTagPanelOpen}
-                onGenerated={() => setTagPanelOpen(true)}
+                bindGenerate={bindGenerate}
                 pendingQuote={pendingQuote}
                 onQuoteConsumed={() => setPendingQuote(null)}
               />
@@ -584,8 +568,7 @@ export default function GeneratePage({ quote }) {
               <I2iModePanel
                 checkpoint={checkpoint}
                 onEnqueue={enqueue}
-                setResult={setResult}
-                setMeta={setMeta}
+                bindGenerate={bindGenerate}
                 onPreview={src => setI2iOverlay(src)}
                 openHistoryPicker={openHistoryPicker}
               />
@@ -593,14 +576,14 @@ export default function GeneratePage({ quote }) {
             {mode === 'video' && (
               <VideoModePanel
                 onRun={startI2v}
-                running={false}
+                bindGenerate={bindGenerate}
                 onPreview={src => setI2iOverlay(src)}
                 openHistoryPicker={openHistoryPicker}
               />
             )}
           </div>
         </div>
-
+      
       {/* 오른쪽 태그 패널 토글 버튼 (파일탭 형태) — 태그가 있을 때만 표시 */}
         {hasTags && (
           <button
@@ -625,50 +608,43 @@ export default function GeneratePage({ quote }) {
 
         {/* 오른쪽 태그 패널 (뷰포트를 밀어냄, 닫으면 완전히 숨김 — 언마운트 방지로 display 토글) */}
         {hasTags && (
+          <button
+            onClick={() => setTagPanelOpen(v => !v)}
+            style={{
+              position: 'absolute', top: 0,
+              right: tagPanelOpen ? tagPanelW : 0,
+              zIndex: 60,
+              width: 60, height: 60,
+              border: '1px solid var(--border)', borderTop: 'none',
+              borderRight: tagPanelOpen ? 'none' : undefined,
+              borderRadius: '0 0 0 12px',
+              background: 'var(--bg2)', color: 'var(--text-dim)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16, cursor: 'pointer',
+              transition: tr(`right ${ANIM}`),
+            }}
+          >
+            {tagPanelOpen ? '▶' : '◀'}
+          </button>
+        )}
+
+        {hasTags && (
           <div style={{
             position: 'absolute', top: 0, right: 0, bottom: 0,
-            width: TAG_PANEL_W,
+            width: tagPanelW,
             background: 'var(--bg2)', borderLeft: '1px solid var(--border)',
-            display: tagPanelOpen ? 'flex' : 'none',
-            flexDirection: 'column', overflow: 'hidden',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
             zIndex: 40,
-            boxShadow: '-4px 0 16px rgba(0,0,0,0.3)',
+            boxShadow: tagPanelOpen ? '-4px 0 16px rgba(0,0,0,0.3)' : 'none',
+            transform: tagPanelOpen ? 'translateX(0)' : 'translateX(100%)',
+            visibility: tagPanelOpen ? 'visible' : 'hidden',
+            transition: tr(tagPanelOpen
+              ? `transform ${ANIM}, visibility 0s`
+              : `transform ${ANIM}, visibility 0s linear 0.25s`),
           }}>
-            <div style={{
-              padding: '10px 12px',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex', gap: 8, alignItems: 'center', whiteSpace: 'nowrap',
-            }}>
-              <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>패스 유형</span>
-              {['문제 없음', '그림체', '인체 디테일', '마음에 들지 않음'].map(p => (
-                <button key={p} className="btn btn-ghost"
-                  style={{ padding: '3px 8px', fontSize: 11, ...(passType === p ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
-                  onClick={() => setPassType(p)}>{p}</button>
-              ))}
-            </div>
+            <ResizeHandle axis="x" style={{ left: 0 }} {...rightResize}
+              onDoubleClick={() => setTagPanelW(Math.max(320, Math.round(window.innerWidth * 0.35)))} />
 
-            <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-              {passType !== '마음에 들지 않음' && (
-                <>
-                  <PromptTags prompt={usedPrompt} />
-                  <TagPanel tags={tags} koMap={koMap} liked={likedTags} disliked={dislikedTags} passed={falseTags}
-                    onLike={tag => setLikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), dislikedTags.delete(tag), falseTags.delete(tag)); return s })}
-                    onDislike={tag => setDislikedTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), falseTags.delete(tag)); return s })}
-                    onPass={tag => setFalseTags(prev => { const s = new Set(prev); s.has(tag) ? s.delete(tag) : (s.add(tag), likedTags.delete(tag), dislikedTags.delete(tag)); return s })}
-                  />
-                  <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
-                    <label>Score: {score}</label>
-                    <input type="range" min={0} max={10} value={score}
-                      onChange={e => setScore(+e.target.value)}
-                      style={{ padding: 0, border: 'none', background: 'none', width: '100%' }} />
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
-              <button className="btn btn-primary" style={{ width: '100%' }} onClick={saveFeedback}>저장</button>
-            </div>
           </div>
         )}
       </div>
@@ -685,6 +661,52 @@ export default function GeneratePage({ quote }) {
           onClose={() => setShowHistoryPicker(false)}
         />
       )}
+      {/* DNA 서랍: 화면 아래 바깥에서 올라오고 내려감 */}
+      <div
+        ref={dnaRef}
+        style={{
+          position: 'absolute', bottom: 0, right: 16,
+          left: leftDrawerOpen ? 396 : 16,
+          paddingBottom: 6,
+          zIndex: 5,
+          transform: dnaOpen ? 'translateY(0)' : 'translateY(100%)',
+          transition: `transform ${ANIM}, left 0.2s ease`,
+          pointerEvents: 'none',
+        }}
+      >
+        {meta && (
+          <div style={{
+            background: 'rgba(36,36,36,0.85)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: 10, fontSize: 11, color: 'var(--text-dim)',
+            maxHeight: 100, overflow: 'auto',
+            pointerEvents: dnaOpen ? 'auto' : 'none',
+          }}>
+            {Object.entries(meta).map(([k, v]) => (
+              v !== undefined && v !== '' && (
+                <span key={k} style={{ marginRight: 12 }}>
+                  <span style={{ color: 'var(--text)' }}>{k}</span>: {String(v)}
+                </span>
+              )
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* DNA 토글 탭: 서랍 윗변에 붙어 같이 움직임 */}
+      <button
+        onClick={() => setDnaOpen(v => !v)}
+        style={{
+          position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+          bottom: dnaShift,
+          transition: `bottom ${ANIM}`,
+          width: 100, height: DNA_TAB_H, zIndex: 6,
+          border: '1px solid var(--border)', borderBottom: 'none', borderRadius: '12px 12px 0 0',
+          background: 'var(--bg2)', color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+        }}
+      >
+        {dnaOpen ? '▼' : '▲'} DNA
+      </button>
     </div>
   )
 }
@@ -997,7 +1019,7 @@ function loadI2vDraft() {
   try { return JSON.parse(localStorage.getItem('i2vDraft')) || {} } catch { return {} }
 }
 
-function VideoModePanel({ onRun, running, onPreview, openHistoryPicker }) {
+function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate }) {
   const [draft] = useState(loadI2vDraft)
   const [subMode, setSubMode]       = useState('i2v')
   const [baseImage, setBaseImage]   = useState(() =>
@@ -1055,7 +1077,7 @@ function VideoModePanel({ onRun, running, onPreview, openHistoryPicker }) {
     }
     onRun(payload, metaInfo)
   }
-
+  useEffect(() => { bindGenerate?.(handleRun, !!baseImage) })
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
       {/* 서브 모드 */}
@@ -1125,10 +1147,6 @@ function VideoModePanel({ onRun, running, onPreview, openHistoryPicker }) {
             <div><label>Low Steps</label><input type="number" value={lowSteps} min={1} onChange={e => setLowSteps(+e.target.value)} /></div>
             <div><label>CFG: {cfg}</label><input type="range" min={1} max={10} step={0.5} value={cfg} onChange={e => setCfg(+e.target.value)} style={{ padding: 0, border: 'none', background: 'none' }} /></div>
           </div>
-
-          <button className="btn btn-primary" disabled={running || !baseImage} onClick={handleRun}>
-            {running ? '생성 중...' : '🎬 비디오 생성'}
-          </button>
         </>
       )}
     </div>
@@ -1136,7 +1154,7 @@ function VideoModePanel({ onRun, running, onPreview, openHistoryPicker }) {
 }
 
 // ── i2i 모드 패널 ──────────────────────────────────────────
-function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker }) {
+function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bindGenerate }) {
   const [baseImage, setBaseImage] = useState(null)
   const [maskBlob, setMaskBlob]   = useState(null)
   const [maskSrc, setMaskSrc]     = useState(null)
@@ -1155,40 +1173,37 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker }) {
   })
   const loras = loraData?.loras || []
 
-  async function handleUpload(e, setSlot) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      const res = await systemApi.uploadImage(file)
-      const { path } = res.data
-      const src = URL.createObjectURL(file)
-      setSlot({ file, filename: file.name, src, path, fromHistory: true })
-    } catch (err) {
-      alert(err.message)
-    }
+async function handleUpload(e, setSlot) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  try {
+    const res = await systemApi.uploadImage(file)
+    const { path } = res.data
+    const src = URL.createObjectURL(file)
+    setSlot({ file, filename: file.name, src, path })
+  } catch (err) {
+    alert(err.message)
   }
+}
 
-  async function generate() {
-    if (!baseImage) { alert('베이스 이미지를 선택해주세요'); return }
-    if (!baseImage.fromHistory) {
-      alert('파일 업로드 엔드포인트 미구현 — 히스토리 이미지를 사용해주세요')
-      return
-    }
+async function generate() {
+  if (!baseImage) { alert('베이스 이미지를 선택해주세요'); return }
 
-    const form = new FormData()
-    form.append('image_path', baseImage.path || '')
-    form.append('checkpoint', checkpoint)
-    form.append('prompt', prompt)
-    form.append('negative', negative)
-    form.append('denoise', denoise)
-    form.append('seed', seed)
-    form.append('lora_name', loraName)
-    form.append('lora_strength', loraStrength)
-    if (maskBlob) form.append('mask_file', maskBlob, 'mask.png')
+  const form = new FormData()
+  form.append('image_path', baseImage.path || '')
+  form.append('checkpoint', checkpoint)
+  form.append('prompt', prompt)
+  form.append('negative', negative)
+  form.append('denoise', denoise)
+  form.append('seed', seed)
+  form.append('lora_name', loraName)
+  form.append('lora_strength', loraStrength)
+  if (maskBlob) form.append('mask_file', maskBlob, 'mask.png')
 
-    await onEnqueue(() => sdApi.enqueueI2i(form))
-  }
-
+  await onEnqueue(() => sdApi.enqueueI2i(form))
+}
+  
+  useEffect(() => { bindGenerate?.(generate, !!baseImage) })
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
       <div>
@@ -1237,7 +1252,7 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker }) {
           onHistoryPick={() => openHistoryPicker(gen => {
             const path = gen.image_path
             const src = `${API_BASE}/api/system/image?path=${encodeURIComponent(path)}`
-            setBaseImage({ file: null, filename: path.split(/[/\\]/).pop(), src, path, fromHistory: true })
+            setBaseImage({ file: null, filename: path.split(/[/\\]/).pop(), src, path })
           })}
           onRemove={() => setBaseImage(null)}
           onPreview={onPreview}
@@ -1262,10 +1277,6 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker }) {
         />
       </div>
 
-      <button className="btn btn-primary" disabled={!baseImage} onClick={generate}>
-        이미지 생성
-      </button>
-
       {showMaskDraw && baseImage && (
         <MaskDrawOverlay
           imageSrc={baseImage.src}
@@ -1282,11 +1293,9 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker }) {
 }
 
 // ── 드롭박스 모드 패널 ─────────────────────────────────────
-function DropdownModePanel({
-  checkpoint, tagFileData, koMap, allWeights, onEnqueue,
-  result, setResult, setMeta,
-  tags, setTags, usedPrompt, setUsedPrompt, onGenerated, setTagPanelOpen,
-  pendingQuote, onQuoteConsumed
+function T2iModePanel({
+  checkpoint, tagFileData, allWeights, onEnqueue, bindGenerate,
+  pendingQuote, onQuoteConsumed,
 }) {
   const [negative, setNegative] = useState('')
   const [dropSelections, setDropSelections] = useState(() => {
@@ -1375,12 +1384,6 @@ function DropdownModePanel({
       return [...prevFiltered, ...newTags]
     })
   }, [dropSelections])
-
-  // 저장
-  useEffect(() => { localStorage.setItem('dropSelections', JSON.stringify(dropSelections)) }, [dropSelections])
-  useEffect(() => { localStorage.setItem('dropRandom', JSON.stringify(dropRandom)) }, [dropRandom])
-  useEffect(() => { localStorage.setItem('dropRandomFixed', JSON.stringify(dropRandomFixed)) }, [dropRandomFixed])
-  useEffect(() => { localStorage.setItem('promptOrder', JSON.stringify(promptOrder)) }, [promptOrder])
 
   const allTagsFlat = useMemo(() => {
     const result = []
@@ -1504,6 +1507,8 @@ function DropdownModePanel({
     }))
   }
 
+  useEffect(() => { bindGenerate?.(generate, !!checkpoint) })
+
   function SortableTag({ id, label, subLabel, isManual, onRemove, onClick }) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
     return (
@@ -1552,7 +1557,7 @@ function DropdownModePanel({
           display: 'flex', flexDirection: 'column', gap: 6,
           paddingBottom: 8,
         }}>
-
+          
           {/* 전체 태그 검색 */}
             <input
               placeholder="🔍 전체 태그 검색..."
@@ -2026,12 +2031,7 @@ function DropdownModePanel({
             )
           })}
         </div>
-
       </div>
-
-      <button className="btn btn-primary" onClick={generate} disabled={!checkpoint} style={{ flexShrink: 0 }}>
-        이미지 생성
-      </button>
     </div>
   )
 }

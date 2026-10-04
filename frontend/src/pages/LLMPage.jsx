@@ -131,7 +131,7 @@ const abortRef = useRef(null)
   }
   // 히스토리 피커(임시)
   async function uploadAndAttach(file) {
-  if (!file || !file.type.startsWith('image/')) return
+  if (!file || loading || !file.type.startsWith('image/')) return
   try {
     const ext = (file.name.split('.').pop() || 'png').toLowerCase()
     file = new File([file], `llm_${Date.now()}.${ext}`, { type: file.type })
@@ -159,17 +159,18 @@ function handleDrop(e) {
 
   // 히스토리 피커 send(임시)
   async function send() {
-  if (!input.trim() || loading || sessionId === null) return
-  const userMsg = { role: 'user', content: input, elapsed_ms: null, image_path: attachedPath }
-  const sentPath = attachedPath
-  setMessages(prev => [...prev, userMsg, { role: 'assistant', content: '', elapsed_ms: null }])
-  setInput('')
-  setAttachedPath(null)
-  setLoading(true)
-  setError(null)
+    if (!input.trim() || loading || sessionId === null) return
+    const text = input
+    const sentPath = attachedPath
+    const userMsg = { role: 'user', content: text, elapsed_ms: null, image_path: sentPath }
+    setMessages(prev => [...prev, userMsg, { role: 'assistant', content: '', elapsed_ms: null }])
+    setLoading(true)
+    setError(null)
+    // 입력/첨부는 여기서 비우지 않음: 첫 토큰을 받은 시점에 비움 (전송 중에는 입력란 읽기 전용)
 
-  const controller = new AbortController()
+    const controller = new AbortController()
     abortRef.current = controller
+    let gotToken = false   // 첫 토큰을 받으면 서버가 이 대화를 저장하게 됨
 
     // 마지막 assistant 메시지(방금 추가한 빈 메시지)를 갱신하는 헬퍼
     const updateLast = (patch) =>
@@ -184,7 +185,7 @@ function handleDrop(e) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: userMsg.content,
+          message: text,
           session_id: sessionId,
           image_path: sentPath,
           use_history_images: useHistoryImages,
@@ -217,6 +218,11 @@ function handleDrop(e) {
           } else if (line.startsWith('data: ')) {
             const data = JSON.parse(line.slice(6))
             if (eventType === 'token') {
+              if (!gotToken) {
+                gotToken = true
+                setInput('')
+                setAttachedPath(null)
+              }
               updateLast(m => ({ content: m.content + data.text }))
             } else if (eventType === 'done') {
               updateLast(() => ({ elapsed_ms: data.elapsed_ms }))
@@ -229,11 +235,10 @@ function handleDrop(e) {
       }
       loadSessions()
     } catch (e) {
-      if (e.name !== 'AbortError') {
-        setError(e.message)
-        updateLast(m => ({ content: m.content || `오류: ${e.message}` }))
-      }
+      if (e.name !== 'AbortError') setError(e.message)
     } finally {
+      // 토큰을 하나도 못 받았으면(서버 미저장) 낙관적 메시지 2개를 되돌리고 입력/첨부는 유지
+      if (!gotToken) setMessages(prev => prev.slice(0, -2))
       setLoading(false)
       abortRef.current = null
     }
@@ -405,15 +410,6 @@ function handleDrop(e) {
               )}
             </div>
           ))}
-          {loading ? (
-            <button className="btn btn-danger" onClick={stopStream}>
-              중단
-            </button>
-          ) : (
-            <button className="btn btn-primary" onClick={send} disabled={sessionId === null}>
-              전송
-            </button>
-          )}
         </div>
 
         <div
@@ -431,17 +427,20 @@ function handleDrop(e) {
                 src={`${API_BASE}/api/system/image?path=${encodeURIComponent(attachedPath)}`}
                 style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6 }}
               />
-              <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setAttachedPath(null)}>
+              <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+                disabled={loading} onClick={() => setAttachedPath(null)}>
                 ✕ 제거
               </button>
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--text-dim)' }}>
-            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => fileInputRef.current?.click()}>
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+              disabled={loading} onClick={() => fileInputRef.current?.click()}>
               📎 파일
             </button>
-            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setPickerOpen(true)}>
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+              disabled={loading} onClick={() => setPickerOpen(true)}>
               🖼️ 히스토리
             </button>
             <input
@@ -481,14 +480,21 @@ function handleDrop(e) {
               value={input}
               onChange={e => setInput(e.target.value)}
               onPaste={handlePaste}
+              readOnly={loading}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
               placeholder="메시지 입력 (Shift+Enter 줄바꿈, 이미지 붙여넣기/드롭 가능)"
-              style={{ flex: 1, height: 64, resize: 'none' }}
+              style={{ flex: 1, height: 64, resize: 'none', opacity: loading ? 0.6 : 1 }}
               disabled={sessionId === null}
             />
-            <button className="btn btn-primary" onClick={send} disabled={loading || sessionId === null}>
-              전송
-            </button>
+            {loading ? (
+              <button className="btn btn-danger" style={{ minWidth: 64 }} onClick={stopStream}>
+                중단
+              </button>
+            ) : (
+              <button className="btn btn-primary" style={{ minWidth: 64 }} onClick={send} disabled={sessionId === null}>
+                전송
+              </button>
+            )}
           </div>
         </div>
 

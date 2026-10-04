@@ -1,5 +1,7 @@
 // src/components/QueueStrip.jsx
 import { API_BASE } from '../api/client'
+import { useDragResize } from '../hooks/useDragResize'
+import ResizeHandle from './ResizeHandle'
 
 const imgSrc = p => `${API_BASE}/api/system/image?path=${encodeURIComponent(p)}`
 const vidSrc = p => `${API_BASE}/api/system/video?path=${encodeURIComponent(p)}`
@@ -42,7 +44,7 @@ const overlayBase = {
   background: 'rgba(0,0,0,0.65)',
 }
 
-function QueueCard({ item, waitingNo, selected, onSelect, onRemove }) {
+function QueueCard({ item, size, waitingNo, selected, onSelect, onRemove }) {
   const s = item.summary || {}
   const thumb = thumbOf(item)
   const isDone = item.status === 'done'
@@ -62,7 +64,7 @@ function QueueCard({ item, waitingNo, selected, onSelect, onRemove }) {
       title={title}
       onClick={() => (isDone || isRunning) && onSelect(item)}
       style={{
-        position: 'relative', width: 88, height: 88, flexShrink: 0,
+        position: 'relative', width: size, height: size, flexShrink: 0,
         borderRadius: 6, overflow: 'hidden', background: 'var(--bg3)',
         border: `2px solid ${selected ? 'var(--accent)' : isError ? 'var(--danger)' : 'var(--border)'}`,
         cursor: (isDone || isRunning) ? 'pointer' : 'default',
@@ -113,7 +115,12 @@ function QueueCard({ item, waitingNo, selected, onSelect, onRemove }) {
 export default function QueueStrip({
   items, open, onToggle, selectedId, onSelect, onRemove, onClearPending,
   shutdown = { armed: false, remaining: 0 }, onToggleShutdown, onAbortShutdown,
+  cardSize = 88, onCardSizeChange,
 }) {
+  const resize = useDragResize({
+    value: cardSize, onChange: v => onCardSizeChange?.(v),
+    min: 56, max: 220, axis: 'y', dir: 1,
+  })
   const pendingCount = items.filter(i => ['waiting', 'running', 'cancelling'].includes(i.status)).length
   const waitingNo = {}
   let n = 0
@@ -122,7 +129,7 @@ export default function QueueStrip({
   return (
     <div style={{ position: 'relative', flexShrink: 0, zIndex: 70 }}>
       {open && (
-        <div style={{ background: 'var(--bg2)', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ position: 'relative', background: 'var(--bg2)', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px 0' }}>
             <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
               {pendingCount > 0 ? `진행·대기 ${pendingCount}개` : `${items.length}개`}
@@ -164,12 +171,15 @@ export default function QueueStrip({
               <QueueCard
                 key={item.id}
                 item={item}
+                size={cardSize}
                 waitingNo={waitingNo[item.id]}
                 selected={item.id === selectedId}
                 onSelect={onSelect}
                 onRemove={onRemove}
               />
             ))}
+
+            <ResizeHandle axis="y" style={{ bottom: 0 }} {...resize} onDoubleClick={() => onCardSizeChange?.(88)} />
           </div>
         </div>
       )}
