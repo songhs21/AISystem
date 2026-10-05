@@ -9,6 +9,7 @@ import subprocess
 
 MAX_FINISHED = 10  # 메모리에 유지할 완료/실패 항목 수
 SHUTDOWN_DELAY_SEC = 60  # 큐 완료 후 PC 종료까지 유예 시간
+SHUTDOWN_MAX_BATCHES = 10  # 종료 예약 시 PC 종료 전에 처리할 메모리 추출 묶음 상한
 
 class GenerationCancelled(Exception):
     """사용자가 생성을 취소함"""
@@ -85,11 +86,13 @@ def remove(item_id: str) -> str:
 
 
 def clear_pending() -> int:
-    """대기 항목 전부 제거 + 실행 중 항목 중단 (PC 종료 예약도 해제)"""
-    global _shutdown_armed
+    """대기 항목 전부 제거 + 실행 중 항목 중단 (PC 종료 예약·종료 전 추출도 해제)"""
+    global _shutdown_armed, _shutdown_prep_cancel
     removed, running = [], False
     with _cv:
         _shutdown_armed = False
+        if _shutdown_prep:
+            _shutdown_prep_cancel = True
         for i in list(_items):
             if i["status"] == "waiting":
                 _items.remove(i)
@@ -103,43 +106,111 @@ def clear_pending() -> int:
         _interrupt()
     return len(removed) + (1 if running else 0)
 
+
+def reorder(ids: list[str]) -> bool:
+    """대기 중인 항목만 ids 순서대로 재배치. ids에 없는 대기 항목은 뒤에 유지."""
+    with _cv:
+        waiting = [i for i in _items if i["status"] == "waiting"]
+        by_id = {i["id"]: i for i in waiting}
+        ordered, seen = [], set()
+        for x in ids:
+            if x in by_id and x not in seen:
+                ordered.append(by_id[x])
+                seen.add(x)
+        ordered += [i for i in waiting if i["id"] not in seen]
+        it = iter(ordered)
+        for idx, item in enumerate(_items):
+            if item["status"] == "waiting":
+                _items[idx] = next(it)
+        return True
+    
 def set_shutdown(enabled: bool):
-    global _shutdown_armed
+    global _shutdown_armed, _shutdown_prep_cancel
     with _cv:
         _shutdown_armed = bool(enabled)
+        if not enabled and _shutdown_prep:
+            _shutdown_prep_cancel = True
 
-# 시스템 종료 로직
+
 def shutdown_state() -> dict:
     with _cv:
         remaining = 0
         if _shutdown_at is not None:
             remaining = max(0, int(SHUTDOWN_DELAY_SEC - (time.time() - _shutdown_at)))
-        return {"armed": _shutdown_armed, "remaining": remaining}
+        return {
+            "armed": _shutdown_armed,
+            "remaining": remaining,
+            "extracting": _shutdown_prep,
+            "batches": _prep_batches,
+            "max_batches": SHUTDOWN_MAX_BATCHES,
+        }
 
 
 def abort_shutdown() -> bool:
-    """예약 해제 + 이미 걸린 종료 취소"""
-    global _shutdown_armed, _shutdown_at
+    """예약 해제 + 종료 전 추출 중단 + 이미 걸린 종료 취소"""
+    global _shutdown_armed, _shutdown_at, _shutdown_prep_cancel
     with _cv:
         _shutdown_armed = False
         was_scheduled = _shutdown_at is not None
+        was_prep = _shutdown_prep
+        if was_prep:
+            _shutdown_prep_cancel = True
         _shutdown_at = None
     if was_scheduled:
         try:
             subprocess.run(["shutdown", "/a"], check=False)
         except Exception as e:
             print(f"[QUEUE] 종료 취소 실패: {e}")
-    return was_scheduled
+    return was_scheduled or was_prep
 
 
 def _maybe_shutdown():
-    global _shutdown_armed, _shutdown_at
+    global _shutdown_armed, _shutdown_prep, _shutdown_prep_cancel, _prep_batches
     with _cv:
-        if not _shutdown_armed:
+        if not _shutdown_armed or _shutdown_prep:
             return
         if any(i["status"] in ("waiting", "running") for i in _items):
             return
         _shutdown_armed = False
+        _shutdown_prep = True
+        _shutdown_prep_cancel = False
+        _prep_batches = 0
+    threading.Thread(target=_shutdown_sequence, daemon=True).start()
+
+def _shutdown_sequence():
+    """큐 완료 → 모델 즉시 언로드 → 메모리 추출(상한) → PC 종료 예약"""
+    global _shutdown_prep, _shutdown_at, _shutdown_armed, _prep_batches
+    try:
+        from core.system import comfy_idle
+        from core.llm import memory_worker
+
+        def should_abort():
+            with _cv:
+                return _shutdown_prep_cancel or any(
+                    i["status"] in ("waiting", "running") for i in _items
+                )
+
+        def on_batch(n):
+            global _prep_batches
+            with _cv:
+                _prep_batches = n
+
+        comfy_idle.unload_now()
+        memory_worker.run_extraction(
+            max_batches=SHUTDOWN_MAX_BATCHES, ignore_idle=True,
+            should_abort=should_abort, on_batch=on_batch,
+        )
+    except Exception as e:
+        print(f"[QUEUE] 종료 전 메모리 추출 실패: {e}")
+
+    with _cv:
+        _shutdown_prep = False
+        _prep_batches = 0
+        if _shutdown_prep_cancel:
+            return
+        if any(i["status"] in ("waiting", "running") for i in _items):
+            _shutdown_armed = True     # 새 작업이 들어왔으니 그 작업이 끝난 뒤 다시 시도
+            return
         _shutdown_at = time.time()
     try:
         subprocess.run(["shutdown", "/s", "/t", str(SHUTDOWN_DELAY_SEC)], check=True)
@@ -170,8 +241,25 @@ def _cleanup(item: dict):
         except Exception:
             pass
 
+
+def _before_run(item: dict):
+    """LLM 메모리 추출이 진행 중이면 현재 묶음이 끝날 때까지 시작을 지연."""
+    try:
+        from core.llm import memory_worker
+
+        def on_wait():
+            with _cv:
+                item["text"] = "LLM 메모리 추출 중 — 묶음 완료 후 시작"
+
+        memory_worker.wait_until_idle(on_wait=on_wait, should_abort=lambda: item["cancel"])
+    except Exception as e:
+        print(f"[QUEUE] 메모리 추출 대기 실패: {e}")
+
 _shutdown_armed = False
 _shutdown_at = None
+_shutdown_prep = False          # 종료 전 메모리 추출 진행 중
+_shutdown_prep_cancel = False
+_prep_batches = 0
 def _worker():
     while True:
         with _cv:
@@ -180,7 +268,11 @@ def _worker():
             item = next(i for i in _items if i["status"] == "waiting")
             item["status"] = "running"
             item["text"] = "시작 중..."
-        _run_item(item)
+        _before_run(item)
+        if item["cancel"]:
+            _finish(item, "cancelled")
+        else:
+            _run_item(item)
         _maybe_shutdown()
 
 

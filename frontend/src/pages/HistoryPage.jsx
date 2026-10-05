@@ -372,7 +372,7 @@ export default function HistoryPage({ onQuote }) {
               </div>
 
               {/* 피드백 편집 오버레이*/}
-              {editTarget && (
+              {editTarget?.gen.id === gen.id && (
                 <>
                   <div
                     onClick={() => setEditTarget(null)}

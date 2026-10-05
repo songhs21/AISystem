@@ -13,3 +13,16 @@ export function dedupeTags(text) {
     })
     .join(', ')
 }
+
+export function toTagLine(text) {
+  return dedupeTags((text || '').replace(/\s*\n+\s*/g, ', '))
+}
+
+export function appendTags(prev, add) {
+  return dedupeTags(prev ? `${prev}, ${add}` : add)
+}
+
+export function appendText(prev, add) {
+  const p = (prev || '').trimEnd()
+  return p ? `${p}\n${add}` : add
+}

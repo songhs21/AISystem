@@ -13,6 +13,8 @@ from core.db import init_db
 from api.routers import sd, history, inpaint, system
 from core.llm_db import init_llm_db
 from api.routers import llm as llm_router
+from core.system import comfy_idle
+from core.llm import memory_worker
 
 app = FastAPI(title="AISystem")
 
@@ -45,3 +47,11 @@ def startup():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.on_event("startup")
+def startup():
+    init_db()
+    init_llm_db()
+    comfy_idle.start()
+    memory_worker.start()
+    logging.info("AISystem API 시작")

@@ -181,6 +181,57 @@ def list_memories(category: str | None = None, only_unreviewed: bool = False) ->
         for r in rows
     ]
 
+def update_memory(memory_id: int, fields: dict) -> dict | None:
+    sets, args = [], []
+
+    if "category" in fields:
+        if fields["category"] not in _VALID_CATEGORY:
+            raise ValueError("잘못된 category")
+        sets.append("category = ?")
+        args.append(fields["category"])
+
+    if "type" in fields:
+        if fields["type"] not in _VALID_TYPE:
+            raise ValueError("잘못된 type")
+        sets.append("type = ?")
+        args.append(fields["type"])
+
+    if "content" in fields:
+        content = (fields["content"] or "").strip()
+        if not content:
+            raise ValueError("content가 비어 있음")
+        sets.append("content = ?")
+        args.append(content)
+
+    if "keywords" in fields:
+        kws = [str(k).strip() for k in (fields["keywords"] or []) if str(k).strip()][:5]
+        sets.append("keywords = ?")
+        args.append(json.dumps(kws, ensure_ascii=False))
+
+    if "reviewed" in fields:
+        sets.append("reviewed = ?")
+        args.append(1 if fields["reviewed"] else 0)
+
+    if not sets:
+        raise ValueError("수정할 필드 없음")
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE memories SET {', '.join(sets)} WHERE id = ?", (*args, memory_id))
+    conn.commit()
+    cur.execute(
+        "SELECT id, category, type, content, keywords, session_id, reviewed, created_at FROM memories WHERE id = ?",
+        (memory_id,),
+    )
+    r = cur.fetchone()
+    conn.close()
+    if r is None:
+        return None
+    return {
+        "id": r[0], "category": r[1], "type": r[2], "content": r[3],
+        "keywords": json.loads(r[4] or "[]"), "session_id": r[5],
+        "reviewed": bool(r[6]), "created_at": r[7],
+    }
 
 def delete_memory(memory_id: int):
     conn = get_conn()

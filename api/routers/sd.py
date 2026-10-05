@@ -1,31 +1,30 @@
-# api/routers/sd.py
 import os
 import json
 import random
 import threading
-from fastapi import APIRouter
+import time as _time
+import uuid
+from functools import lru_cache
+from typing import Annotated
+
+from fastapi import APIRouter, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
 from config.PATH import CHECKPOINT_DIR, WORKFLOW_PATH, COMFY_INPUT
 from config.constants import NEGATIVE_BASE, MODEL_RESOLUTION
-from core.image.generate import run_comfy, run_upscale, load_upscale_workflow, is_comfy_alive, run_i2i, run_i2i_mask
+from core.image.generate import run_comfy, run_upscale, load_upscale_workflow, run_i2i, run_i2i_mask
 from core.image.preference import (
     save_generation_start, get_generation_by_prompt_id, update_upscaled_image,
     update_generation_meta, save_video,
 )
 from core.system.watcher import watch_comfy
 from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comfy
-import random
-from functools import lru_cache
-import uuid
-from typing import Annotated
-from fastapi import File, UploadFile, Form
-import time as _time
-from core.system.notify import notify
-router = APIRouter(prefix="/api/sd", tags=["sd"])
 from core.system.notify import notify
 from core.system import jobs
 from core.system import gen_queue
+
+router = APIRouter(prefix="/api/sd", tags=["sd"])
 
 # ── 유틸 ──────────────────────────────────────────────────
 
@@ -490,9 +489,6 @@ def _run_t2i(p: dict):
 
 
 def _run_i2i(p: dict):
-    args = (
-        p["image_path"],
-    )
     if p.get("mask_path"):
         gen = run_i2i_mask(
             p["image_path"], p["mask_path"], p["checkpoint"], p["prompt"], p["negative"],
@@ -613,10 +609,15 @@ def get_queue():
     return {"items": gen_queue.snapshot(), "shutdown": gen_queue.shutdown_state()}
 
 
+class ReorderRequest(BaseModel):
+    ids: list[str]
+@router.post("/queue/reorder")
+def reorder_queue(req: ReorderRequest):
+    gen_queue.reorder(req.ids)
+    return {"items": gen_queue.snapshot()}
+
 class ShutdownRequest(BaseModel):
     enabled: bool
-
-
 @router.post("/queue/shutdown")
 def set_queue_shutdown(req: ShutdownRequest):
     gen_queue.set_shutdown(req.enabled)

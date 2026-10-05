@@ -20,6 +20,7 @@ import time
 import json as _json
 from config.PATH import LORA_TRIGGERS
 from core.system.gen_queue import GenerationCancelled
+from core.system import comfy_idle
 
 WS_POLL_SEC = 30        # recv 타임아웃(생존 확인 주기)
 WS_MAX_IDLE_SEC = 1800  # 이벤트가 이 시간 동안 없으면 실패 처리
@@ -120,6 +121,7 @@ def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95, prompt_
 
 
 def _post_workflow(workflow: dict, client_id: str) -> str:
+    comfy_idle.mark_busy()
     response = requests.post(
         f"{COMFY_URL}/prompt",
         json={"prompt": workflow, "client_id": client_id},

@@ -75,7 +75,7 @@ export default function App() {
               height: '100%'
             }}
           >
-            <LLMPage />
+            <LLMPage onQuote={handleQuote} />
           </div>
         </main>
       </div>

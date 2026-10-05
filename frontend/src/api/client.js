@@ -34,6 +34,7 @@ export const sdApi = {
   clearQueue: () => client.delete('/api/sd/queue'),
   setQueueShutdown: (enabled) => client.post('/api/sd/queue/shutdown', { enabled }),
   abortQueueShutdown: () => client.post('/api/sd/queue/shutdown/abort'),
+  reorderQueue: (ids) => client.post('/api/sd/queue/reorder', { ids }),
 }
 
 // ── 히스토리 ──────────────────────────────────────────────
@@ -72,12 +73,17 @@ export const llmApi = {
       session_id: sessionId,
       model,
       image_path: opts.imagePath || null,
-      use_history_images: opts.useHistoryImages || false,
-      max_history_images: opts.maxHistoryImages ?? 2,
+      quotes: opts.quotes || [],
     }, { timeout: 300000 }),
   deleteSession: (sessionId) => client.delete(`/api/llm/sessions/${sessionId}`),
   renameSession: (sessionId, title) => client.patch(`/api/llm/sessions/${sessionId}`, { title }),
   chatStreamUrl: () => `${API_BASE}/api/llm/chat-stream`,
+  memories: (category, onlyUnreviewed = false) =>
+    client.get('/api/llm/memories', {
+      params: { category: category || undefined, only_unreviewed: onlyUnreviewed },
+    }),
+  updateMemory: (id, patch) => client.patch(`/api/llm/memories/${id}`, patch),
+  deleteMemory: (id) => client.delete(`/api/llm/memories/${id}`),
 }
 
 export const ollamaApi = {
@@ -98,5 +104,5 @@ export const systemApi = {
     return client.post('/api/system/upload', form)
   },
   reveal: (path) => client.post('/api/system/reveal', { path }),
-  
+
 }

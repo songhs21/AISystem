@@ -37,5 +37,13 @@ def init_llm_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # 컬럼 마이그레이션 (없을 때만 추가)
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(chat_messages)")}
+    if "image_path" not in existing:
+        cursor.execute("ALTER TABLE chat_messages ADD COLUMN image_path TEXT")
+    if "quotes" not in existing:
+        cursor.execute("ALTER TABLE chat_messages ADD COLUMN quotes TEXT")
+
     conn.commit()
     conn.close()

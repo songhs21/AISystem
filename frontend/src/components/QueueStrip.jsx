@@ -2,6 +2,13 @@
 import { API_BASE } from '../api/client'
 import { useDragResize } from '../hooks/useDragResize'
 import ResizeHandle from './ResizeHandle'
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext, horizontalListSortingStrategy, useSortable, arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 const imgSrc = p => `${API_BASE}/api/system/image?path=${encodeURIComponent(p)}`
 const vidSrc = p => `${API_BASE}/api/system/video?path=${encodeURIComponent(p)}`
@@ -24,6 +31,29 @@ export function itemMeta(item) {
     }
   }
   return meta
+}
+
+// 대기열 순서 변경
+function SortableItem({ id, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        flexShrink: 0,
+        position: 'relative',
+        zIndex: isDragging ? 10 : 'auto',
+        opacity: isDragging ? 0.6 : 1,
+        touchAction: 'none',
+      }}
+    >
+      {children}
+    </div>
+  )
 }
 
 function thumbOf(item) {
@@ -50,6 +80,7 @@ function QueueCard({ item, size, waitingNo, selected, onSelect, onRemove }) {
   const isDone = item.status === 'done'
   const isError = item.status === 'error'
   const isRunning = item.status === 'running' || item.status === 'cancelling'
+  const isWaiting = item.status === 'waiting'
 
   const title = [
     `[${item.kind}] ${shortName(s.checkpoint)}`,
@@ -62,12 +93,12 @@ function QueueCard({ item, size, waitingNo, selected, onSelect, onRemove }) {
   return (
     <div
       title={title}
-      onClick={() => (isDone || isRunning) && onSelect(item)}
+      onClick={() => (isDone || isRunning || isWaiting) && onSelect(item)}
       style={{
         position: 'relative', width: size, height: size, flexShrink: 0,
         borderRadius: 6, overflow: 'hidden', background: 'var(--bg3)',
         border: `2px solid ${selected ? 'var(--accent)' : isError ? 'var(--danger)' : 'var(--border)'}`,
-        cursor: (isDone || isRunning) ? 'pointer' : 'default',
+        cursor: isWaiting ? 'grab' : (isDone || isRunning) ? 'pointer' : 'default',
         opacity: item.status === 'waiting' ? 0.8 : 1,
       }}
     >
@@ -114,13 +145,24 @@ function QueueCard({ item, size, waitingNo, selected, onSelect, onRemove }) {
 
 export default function QueueStrip({
   items, open, onToggle, selectedId, onSelect, onRemove, onClearPending,
-  shutdown = { armed: false, remaining: 0 }, onToggleShutdown, onAbortShutdown,
-  cardSize = 88, onCardSizeChange,
+  shutdown = { armed: false, remaining: 0, extracting: false }, onToggleShutdown, onAbortShutdown,
+  cardSize = 88, onCardSizeChange, onReorder,
 }) {
   const resize = useDragResize({
     value: cardSize, onChange: v => onCardSizeChange?.(v),
     min: 56, max: 220, axis: 'y', dir: 1,
   })
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const waitingIds = items.filter(i => i.status === 'waiting').map(i => i.id)
+
+  function handleDragEnd({ active, over }) {
+    if (!over || active.id === over.id) return
+    const from = waitingIds.indexOf(active.id)
+    const to = waitingIds.indexOf(over.id)
+    if (from < 0 || to < 0) return
+    onReorder?.(arrayMove(waitingIds, from, to))
+  }
+  
   const pendingCount = items.filter(i => ['waiting', 'running', 'cancelling'].includes(i.status)).length
   const waitingNo = {}
   let n = 0
@@ -138,6 +180,15 @@ export default function QueueStrip({
             {shutdown.remaining > 0 && (
               <span style={{ fontSize: 11, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 ⏻ PC가 {shutdown.remaining}초 후 종료됩니다
+                <button className="btn btn-danger" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onAbortShutdown}>
+                  종료 취소
+                </button>
+              </span>
+            )}
+
+            {shutdown.extracting && (
+              <span style={{ fontSize: 11, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                ⏻ 종료 전 LLM 메모리 추출 중 ({shutdown.batches}/{shutdown.max_batches})
                 <button className="btn btn-danger" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onAbortShutdown}>
                   종료 취소
                 </button>
@@ -167,17 +218,27 @@ export default function QueueStrip({
           <div style={{ display: 'flex', gap: 8, padding: '4px 12px 10px', overflowX: 'auto' }}>
             {items.length === 0 ? (
               <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>생성 요청이 여기에 쌓입니다</span>
-            ) : items.map(item => (
-              <QueueCard
-                key={item.id}
-                item={item}
-                size={cardSize}
-                waitingNo={waitingNo[item.id]}
-                selected={item.id === selectedId}
-                onSelect={onSelect}
-                onRemove={onRemove}
-              />
-            ))}
+            ) : (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={waitingIds} strategy={horizontalListSortingStrategy}>
+                  {items.map(item => {
+                    const card = (
+                      <QueueCard
+                        item={item}
+                        size={cardSize}
+                        waitingNo={waitingNo[item.id]}
+                        selected={item.id === selectedId}
+                        onSelect={onSelect}
+                        onRemove={onRemove}
+                      />
+                    )
+                    return item.status === 'waiting'
+                      ? <SortableItem key={item.id} id={item.id}>{card}</SortableItem>
+                      : <div key={item.id} style={{ flexShrink: 0 }}>{card}</div>
+                  })}
+                </SortableContext>
+              </DndContext>
+            )}
 
             <ResizeHandle axis="y" style={{ bottom: 0 }} {...resize} onDoubleClick={() => onCardSizeChange?.(88)} />
           </div>

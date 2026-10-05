@@ -1,6 +1,6 @@
 // src/pages/GeneratePage.jsx
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   client,
   sdApi,
@@ -26,7 +26,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { CATEGORY_CONFIG, CATEGORY_ORDER } from '../constants/tagConfig'
-import { dedupeTags } from '../utils/tags'
+import { dedupeTags, appendTags, appendText } from '../utils/tags'
 import QueueStrip, { itemMeta } from '../components/QueueStrip'
 import { usePersistentState } from '../hooks/usePersistentState'
 import { useDragResize } from '../hooks/useDragResize'
@@ -161,12 +161,19 @@ export default function GeneratePage({ quote }) {
     staleTime: 0,
   })
   const queueItems = queueData?.items || []
+  const queryClient = useQueryClient()
+  const waitingNo = {}
+  {
+    let n = 0
+    queueItems.forEach(i => { if (i.status === 'waiting') waitingNo[i.id] = ++n })
+  }
+
   const activeItem = queueItems.find(i => i.status === 'running' || i.status === 'cancelling')
   const lastError = [...queueItems].reverse().find(i => i.status === 'error')
   // 시스템 종료
   const shutdown = queueData?.shutdown || { armed: false, remaining: 0 }
   const selectedItem = queueItems.find(i => i.id === selectedId)
-  const showRunningCenter = selectedItem && ['running', 'cancelling'].includes(selectedItem.status)
+  const showRunningCenter = selectedItem && ['waiting', 'running', 'cancelling'].includes(selectedItem.status)
 
 
   // 태그 패널 전용 state (드롭박스 결과에만 사용)
@@ -224,7 +231,8 @@ export default function GeneratePage({ quote }) {
 
   useEffect(() => {
     if (!quote) return
-    selectMode('T2I')
+    const target = quote.target || 'T2I'     // 'T2I' | 'I2I' | 'video'
+    selectMode(target)
     setLeftDrawerOpen(true)
 
     if (quote.checkpoint) {
@@ -234,7 +242,7 @@ export default function GeneratePage({ quote }) {
       else alert(`체크포인트를 찾을 수 없음: ${base}`)
     }
 
-    if (quote.positive != null || quote.negative != null) setPendingQuote(quote)
+    if (quote.positive != null || quote.negative != null) setPendingQuote({ ...quote, target })
   }, [quote])
   
   function openHistoryPicker(onPickCallback) {
@@ -250,7 +258,19 @@ export default function GeneratePage({ quote }) {
     setMode(m)
   }
 
-
+  // 좋아요/싫어요/패스 중 하나만 선택되도록 토글 (이미 해당 상태면 해제)
+function toggleFeedbackTag(tag, kind) {
+  const sets = {
+    like:    [likedTags,    setLikedTags],
+    dislike: [dislikedTags, setDislikedTags],
+    pass:    [falseTags,    setFalseTags],
+  }
+  const had = sets[kind][0].has(tag)
+  Object.values(sets).forEach(([, set]) =>
+    set(prev => { const s = new Set(prev); s.delete(tag); return s })
+  )
+  if (!had) sets[kind][1](prev => new Set(prev).add(tag))
+}
 
   async function saveFeedback() {
     if (!result) return
@@ -272,7 +292,8 @@ export default function GeneratePage({ quote }) {
   useEffect(() => {
     setQueueActive(
       queueItems.some(i => ['waiting', 'running', 'cancelling'].includes(i.status)) ||
-      (queueData?.shutdown?.remaining ?? 0) > 0
+      (queueData?.shutdown?.remaining ?? 0) > 0 ||
+      !!queueData?.shutdown?.extracting
     )
   }, [queueData])
 
@@ -326,8 +347,8 @@ export default function GeneratePage({ quote }) {
     return enqueue(() => sdApi.enqueueI2v(payload))
   }
 
-  function handleSelect(item) {
-    if (item.status === 'running' || item.status === 'cancelling') {
+    function handleSelect(item) {
+    if (['waiting', 'running', 'cancelling'].includes(item.status)) {
       followRef.current = true   // 이 항목이 끝나면 자동으로 결과를 보여줌
       setSelectedId(item.id)
       setMeta(itemMeta(item))
@@ -338,6 +359,18 @@ export default function GeneratePage({ quote }) {
     const latestDone = [...queueItems].reverse().find(i => i.status === 'done')
     followRef.current = latestDone?.id === item.id
     showItem(item)
+  }
+
+  async function handleReorder(ids) {
+    queryClient.setQueryData(['gen-queue'], old => {
+      if (!old) return old
+      const byId = Object.fromEntries(old.items.map(i => [i.id, i]))
+      const queue = ids.map(id => byId[id]).filter(i => i?.status === 'waiting')
+      let k = 0
+      return { ...old, items: old.items.map(i => (i.status === 'waiting' ? queue[k++] ?? i : i)) }
+    })
+    await sdApi.reorderQueue(ids).catch(() => {})
+    refetchQueue()
   }
 
   async function handleRemove(item) {
@@ -387,6 +420,7 @@ export default function GeneratePage({ quote }) {
         onAbortShutdown={handleAbortShutdown}
         cardSize={queueCardSize}
         onCardSizeChange={setQueueCardSize}
+        onReorder={handleReorder}
       />
 
       {/* 뷰포트 + 서랍 영역 */}
@@ -416,15 +450,22 @@ export default function GeneratePage({ quote }) {
                     src={`${API_BASE}/api/system/image?path=${encodeURIComponent(result.image_path)}`}
                     style={{ width: '100%', height: '100%' }} />
             ) : showRunningCenter ? (
-              <div style={{ width: 'min(360px, 80%)', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
-                <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>[{selectedItem.kind}] 생성 중</div>
-                <div className="progress-bar" style={{ height: 10 }}>
-                  <div className="progress-bar-fill" style={{ width: `${(selectedItem.progress || 0) * 100}%` }} />
+              selectedItem.status === 'waiting' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                  <div style={{ fontSize: 14 }}>[{selectedItem.kind}] 대기 #{waitingNo[selectedItem.id]}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>앞선 작업이 끝나면 시작됩니다</div>
                 </div>
-                <div style={{ fontSize: 12 }}>
-                  {Math.round((selectedItem.progress || 0) * 100)}% · {selectedItem.status === 'cancelling' ? '취소 중...' : selectedItem.text}
+              ) : (
+                <div style={{ width: 'min(360px, 80%)', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>[{selectedItem.kind}] 생성 중</div>
+                  <div className="progress-bar" style={{ height: 10 }}>
+                    <div className="progress-bar-fill" style={{ width: `${(selectedItem.progress || 0) * 100}%` }} />
+                  </div>
+                  <div style={{ fontSize: 12 }}>
+                    {Math.round((selectedItem.progress || 0) * 100)}% · {selectedItem.status === 'cancelling' ? '취소 중...' : selectedItem.text}
+                  </div>
                 </div>
-              </div>
+              )
             ) : (
               <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>
                 생성된 결과가 여기에 표시됩니다
@@ -564,13 +605,15 @@ export default function GeneratePage({ quote }) {
                 onQuoteConsumed={() => setPendingQuote(null)}
               />
             )}
-            {mode === 'i2i' && (
+            {mode === 'I2I' && (
               <I2iModePanel
                 checkpoint={checkpoint}
                 onEnqueue={enqueue}
                 bindGenerate={bindGenerate}
                 onPreview={src => setI2iOverlay(src)}
                 openHistoryPicker={openHistoryPicker}
+                pendingQuote={pendingQuote}
+                onQuoteConsumed={() => setPendingQuote(null)}
               />
             )}
             {mode === 'video' && (
@@ -579,32 +622,13 @@ export default function GeneratePage({ quote }) {
                 bindGenerate={bindGenerate}
                 onPreview={src => setI2iOverlay(src)}
                 openHistoryPicker={openHistoryPicker}
+                pendingQuote={pendingQuote}
+                onQuoteConsumed={() => setPendingQuote(null)}
               />
             )}
           </div>
         </div>
-      
-      {/* 오른쪽 태그 패널 토글 버튼 (파일탭 형태) — 태그가 있을 때만 표시 */}
-        {hasTags && (
-          <button
-            onClick={() => setTagPanelOpen(v => !v)}
-            style={{
-              position: 'absolute', top: 0,
-              right: tagPanelOpen ? TAG_PANEL_W : 0,
-              zIndex: 60,
-              width: 60, height: 60,
-              border: '1px solid var(--border)', borderTop: 'none',
-              borderRight: tagPanelOpen ? 'none' : undefined,
-              borderRadius: '0 0 0 12px',
-              background: 'var(--bg2)', color: 'var(--text-dim)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 16, cursor: 'pointer',
-              transition: 'right 0.2s ease',
-            }}
-          >
-            {tagPanelOpen ? '▶' : '◀'}
-          </button>
-        )}
+
 
         {/* 오른쪽 태그 패널 (뷰포트를 밀어냄, 닫으면 완전히 숨김 — 언마운트 방지로 display 토글) */}
         {hasTags && (
@@ -644,7 +668,65 @@ export default function GeneratePage({ quote }) {
           }}>
             <ResizeHandle axis="x" style={{ left: 0 }} {...rightResize}
               onDoubleClick={() => setTagPanelW(Math.max(320, Math.round(window.innerWidth * 0.35)))} />
+            {/* 헤더 */}
+            <div style={{
+              padding: '10px 14px', borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+            }}>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>🏷️ 태그 피드백</span>
+              {result?.gen_id != null && (
+                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>#{result.gen_id}</span>
+              )}
+            </div>
 
+            {/* 사용된 프롬프트 */}
+            <div style={{ maxHeight: 110, overflowY: 'auto', flexShrink: 0 }}>
+              <PromptTags prompt={usedPrompt} />
+            </div>
+
+            {/* 패스 유형 */}
+            <div style={{
+              padding: '8px 14px', borderBottom: '1px solid var(--border)',
+              display: 'flex', gap: 4, flexWrap: 'wrap', flexShrink: 0,
+            }}>
+              {['문제 없음', '그림체', '인체 디테일', '마음에 들지 않음'].map(p => (
+                <button key={p} className="btn btn-ghost"
+                  style={{ fontSize: 11, padding: '3px 8px',
+                    ...(passType === p ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                  onClick={() => setPassType(p)}
+                >{p}</button>
+              ))}
+            </div>
+
+            {/* 태그 목록 */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              {passType !== '마음에 들지 않음' && (
+                <TagPanel
+                  tags={tags}
+                  liked={likedTags} disliked={dislikedTags} passed={falseTags}
+                  onLike={tag => toggleFeedbackTag(tag, 'like')}
+                  onDislike={tag => toggleFeedbackTag(tag, 'dislike')}
+                  onPass={tag => toggleFeedbackTag(tag, 'pass')}
+                />
+              )}
+            </div>
+
+            {/* 스코어 */}
+            {passType !== '마음에 들지 않음' && (
+              <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+                <label>Score: {score}</label>
+                <input type="range" min={0} max={10} value={score}
+                  onChange={e => setScore(+e.target.value)}
+                  style={{ width: '100%', padding: 0, border: 'none', background: 'none' }} />
+              </div>
+            )}
+
+            {/* 저장 */}
+            <div style={{ padding: 12, borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+              <button className="btn btn-primary" style={{ width: '100%' }} onClick={saveFeedback}>
+                피드백 저장
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -1019,7 +1101,7 @@ function loadI2vDraft() {
   try { return JSON.parse(localStorage.getItem('i2vDraft')) || {} } catch { return {} }
 }
 
-function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate }) {
+function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pendingQuote, onQuoteConsumed }) {
   const [draft] = useState(loadI2vDraft)
   const [subMode, setSubMode]       = useState('i2v')
   const [baseImage, setBaseImage]   = useState(() =>
@@ -1045,6 +1127,26 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate }) {
   })
   const loras = loraData?.loras || []
 
+  const lastQuoteRef = useRef(null)
+
+  useEffect(() => {
+    if (!pendingQuote) return
+    console.log('[quote] video apply', pendingQuote)
+    if (pendingQuote.nonce != null && lastQuoteRef.current === pendingQuote.nonce) {
+      onQuoteConsumed?.()
+      return
+    }
+    lastQuoteRef.current = pendingQuote.nonce ?? null
+    const append = !!pendingQuote.append
+
+    if (pendingQuote.positive != null) {
+      setPrompt(prev => append ? appendText(prev, pendingQuote.positive) : pendingQuote.positive)
+    }
+    if (pendingQuote.negative != null) {
+      setNegative(prev => append ? appendText(prev, pendingQuote.negative) : pendingQuote.negative)
+    }
+    onQuoteConsumed?.()
+  }, [pendingQuote])
 
   // 입력 저장 (변경 시마다)
   useEffect(() => {
@@ -1054,6 +1156,13 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate }) {
     }
     localStorage.setItem('i2vDraft', JSON.stringify(draft))
   }, [baseImage, prompt, negative, seed, width, height, length, highSteps, lowSteps, cfg, loraName, loraStrength])
+
+  useEffect(() => {
+    if (!pendingQuote) return
+    if (pendingQuote.positive != null) setPrompt(pendingQuote.positive)
+    if (pendingQuote.negative != null) setNegative(pendingQuote.negative)
+    onQuoteConsumed?.()
+  }, [pendingQuote])
 
   async function handleUpload(e) {
     const file = e.target.files?.[0]
@@ -1154,7 +1263,7 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate }) {
 }
 
 // ── i2i 모드 패널 ──────────────────────────────────────────
-function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bindGenerate }) {
+function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bindGenerate, pendingQuote, onQuoteConsumed }) {
   const [baseImage, setBaseImage] = useState(null)
   const [maskBlob, setMaskBlob]   = useState(null)
   const [maskSrc, setMaskSrc]     = useState(null)
@@ -1173,37 +1282,58 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bin
   })
   const loras = loraData?.loras || []
 
-async function handleUpload(e, setSlot) {
-  const file = e.target.files?.[0]
-  if (!file) return
-  try {
-    const res = await systemApi.uploadImage(file)
-    const { path } = res.data
-    const src = URL.createObjectURL(file)
-    setSlot({ file, filename: file.name, src, path })
-  } catch (err) {
-    alert(err.message)
+  async function handleUpload(e, setSlot) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const res = await systemApi.uploadImage(file)
+      const { path } = res.data
+      const src = URL.createObjectURL(file)
+      setSlot({ file, filename: file.name, src, path })
+    } catch (err) {
+      alert(err.message)
+    }
   }
-}
 
-async function generate() {
-  if (!baseImage) { alert('베이스 이미지를 선택해주세요'); return }
+  async function generate() {
+    if (!baseImage) { alert('베이스 이미지를 선택해주세요'); return }
 
-  const form = new FormData()
-  form.append('image_path', baseImage.path || '')
-  form.append('checkpoint', checkpoint)
-  form.append('prompt', prompt)
-  form.append('negative', negative)
-  form.append('denoise', denoise)
-  form.append('seed', seed)
-  form.append('lora_name', loraName)
-  form.append('lora_strength', loraStrength)
-  if (maskBlob) form.append('mask_file', maskBlob, 'mask.png')
+    const form = new FormData()
+    form.append('image_path', baseImage.path || '')
+    form.append('checkpoint', checkpoint)
+    form.append('prompt', prompt)
+    form.append('negative', negative)
+    form.append('denoise', denoise)
+    form.append('seed', seed)
+    form.append('lora_name', loraName)
+    form.append('lora_strength', loraStrength)
+    if (maskBlob) form.append('mask_file', maskBlob, 'mask.png')
 
-  await onEnqueue(() => sdApi.enqueueI2i(form))
-}
+    await onEnqueue(() => sdApi.enqueueI2i(form))
+  }
   
   useEffect(() => { bindGenerate?.(generate, !!baseImage) })
+
+  const lastQuoteRef = useRef(null)
+
+  useEffect(() => {
+    if (!pendingQuote) return
+    console.log('[quote] I2I apply', pendingQuote)
+    if (pendingQuote.nonce != null && lastQuoteRef.current === pendingQuote.nonce) {
+      onQuoteConsumed?.()
+      return
+    }
+    lastQuoteRef.current = pendingQuote.nonce ?? null
+    const append = !!pendingQuote.append
+
+    if (pendingQuote.positive != null) {
+      setPrompt(prev => append ? appendTags(prev, pendingQuote.positive) : pendingQuote.positive)
+    }
+    if (pendingQuote.negative != null) {
+      setNegative(prev => append ? appendTags(prev, pendingQuote.negative) : pendingQuote.negative)
+    }
+    onQuoteConsumed?.()
+  }, [pendingQuote])
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
       <div>
@@ -1417,18 +1547,29 @@ function T2iModePanel({
     })
   }, [allTagsFlat])
 
-    // 히스토리 프롬프트 인용 (기존 값 대체)
+  // 히스토리 프롬프트 인용 (기존 값 대체)
+  const lastQuoteRef = useRef(null)
+
   useEffect(() => {
     if (!pendingQuote) return
+    console.log('[quote] T2I apply', pendingQuote)
+    // StrictMode 이중 실행 방지
+    if (pendingQuote.nonce != null && lastQuoteRef.current === pendingQuote.nonce) {
+      onQuoteConsumed?.()
+      return
+    }
+    lastQuoteRef.current = pendingQuote.nonce ?? null
+    const append = !!pendingQuote.append
 
     if (pendingQuote.positive != null) {
       const tokens = [...new Set(
         pendingQuote.positive.split(',').map(t => t.trim()).filter(Boolean)
       )]
-      const selections = {}
-      const order = []
+      const selections = append ? { ...dropSelections } : {}
+      const order = append ? [...promptOrder] : []
 
       for (const token of tokens) {
+        if (order.some(p => p.en === token)) continue
         const lower = token.toLowerCase()
         const underscored = lower.replace(/ /g, '_')
         const hit = allTagsFlat.find(t =>
@@ -1453,14 +1594,18 @@ function T2iModePanel({
         }
       }
 
-      setDropRandom({})
-      setDropRandomFixed({})
+      if (!append) {
+        setDropRandom({})
+        setDropRandomFixed({})
+      }
       setDropSelections(selections)
       setPromptOrder(order)
     }
 
     if (pendingQuote.negative != null) {
-      setNegative(dedupeTags(pendingQuote.negative))
+      setNegative(prev => append
+        ? appendTags(prev, pendingQuote.negative)
+        : dedupeTags(pendingQuote.negative))
     }
 
     onQuoteConsumed?.()
