@@ -21,6 +21,8 @@ import json as _json
 from config.PATH import LORA_TRIGGERS
 from core.system.gen_queue import GenerationCancelled
 from core.system import comfy_idle
+import logging
+log = logging.getLogger("comfy")
 
 WS_POLL_SEC = 30        # recv 타임아웃(생존 확인 주기)
 WS_MAX_IDLE_SEC = 1800  # 이벤트가 이 시간 동안 없으면 실패 처리
@@ -108,6 +110,12 @@ def _ws_progress(ws, start_ratio: float = 0.15, end_ratio: float = 0.95, prompt_
                 raise GenerationCancelled()
 
             elif mtype == "execution_error":
+                log.error("ComfyUI 실행 오류 prompt_id=%s node=%s(%s) type=%s msg=%s",
+                          data.get("prompt_id"), data.get("node_id"), data.get("node_type"),
+                          data.get("exception_type"), data.get("exception_message"))
+                tb = data.get("traceback")
+                if tb:
+                    log.debug("ComfyUI traceback:\n%s", "".join(tb) if isinstance(tb, list) else tb)
                 raise RuntimeError(f"ComfyUI 실행 오류: {data.get('exception_message', '알 수 없음')}")
 
             elif mtype == "executing":
@@ -128,15 +136,18 @@ def _post_workflow(workflow: dict, client_id: str) -> str:
         timeout=5
     )
     if not response.ok:
-        print(f"ComfyUI 에러 응답: {response.text}")  # 추가
+        log.error("ComfyUI /prompt 거부 status=%s body=%s", response.status_code, response.text[:2000])
     response.raise_for_status()
     resp = response.json()
     if "prompt_id" not in resp:
+        log.error("ComfyUI 노드 검증 실패 node_errors=%s error=%s",
+                  resp.get("node_errors"), resp.get("error"))
         raise ValueError(
             f"ComfyUI 노드 검증 실패\n"
             f"▶ 노드 에러: {resp.get('node_errors', {})}\n"
             f"▶ 에러: {resp.get('error', {})}"
         )
+    log.info("워크플로우 제출 prompt_id=%s client=%s", resp["prompt_id"], client_id[:8])
     return resp["prompt_id"]
 
 # ── 이미지 생성 ───────────────────────────────────────────

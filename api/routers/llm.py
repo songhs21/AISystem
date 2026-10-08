@@ -13,18 +13,11 @@ from pathlib import Path
 from core.llm.llm_memory import extract_session, list_memories, delete_memory, update_memory
 from core.llm import memory_worker
 
+log = logging.getLogger("llm")
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 DEFAULT_MODEL = "sorc/qwen3.5-instruct-heretic:9b"
-_log_path = Path(__file__).resolve().parent.parent.parent / "data" / "logs" / "llm_debug.log"
-_log_path.parent.mkdir(parents=True, exist_ok=True)
-_llm_logger = logging.getLogger("llm_debug")
-_llm_logger.setLevel(logging.INFO)
-if not _llm_logger.handlers:
-    _fh = logging.FileHandler(_log_path, encoding="utf-8")
-    _fh.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
-    _llm_logger.addHandler(_fh)
 
 class QuoteItem(BaseModel):
     role: str | None = None          # 'user' | 'assistant' | None(이미지 전용)
@@ -204,6 +197,7 @@ def chat(req: ChatRequest):
         )
         resp.raise_for_status()
     except requests.exceptions.RequestException as e:
+        log.warning("Ollama 호출 실패 session=%s: %s", req.session_id, e)
         raise HTTPException(status_code=502, detail=f"Ollama 호출 실패: {e}")
 
     elapsed_ms = int((time.time() - start) * 1000)
@@ -227,6 +221,9 @@ def chat_stream(req: ChatRequest):
     init_llm_db()
     _ensure_session(req.session_id, req.model)
     ollama_messages = _build_ollama_messages(req)
+    log.info("chat 요청 session=%s model=%s msg_len=%d quotes=%d image=%s",
+             req.session_id, req.model, len(req.message), len(req.quotes), bool(req.image_path))
+    
     quotes_data = [q.dict() for q in req.quotes]
 
     def stream():
@@ -255,17 +252,16 @@ def chat_stream(req: ChatRequest):
                         collected.append(token)
                         yield f"event: token\ndata: {json.dumps({'text': token})}\n\n"
                     if chunk.get("done"):
-                        _llm_logger.info(
-                            f"done_reason={chunk.get('done_reason')}, "
-                            f"prompt_eval_count={chunk.get('prompt_eval_count')}, "
-                            f"eval_count={chunk.get('eval_count')}"
-                        )
+                        log.info("chat 완료 session=%s model=%s done_reason=%s prompt_tokens=%s eval_tokens=%s",
+                                 req.session_id, req.model, chunk.get("done_reason"),
+                                 chunk.get("prompt_eval_count"), chunk.get("eval_count"))
                         break
 
             elapsed_ms = int((time.time() - start) * 1000)
             yield f"event: done\ndata: {json.dumps({'elapsed_ms': elapsed_ms, 'model': req.model})}\n\n"
 
         except requests.exceptions.RequestException as e:
+            log.exception("Ollama 호출 실패 session=%s", req.session_id)
             yield f"event: error\ndata: {json.dumps({'message': f'Ollama 호출 실패: {e}'})}\n\n"
         finally:
             memory_worker.chat_end()

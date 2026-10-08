@@ -18,7 +18,7 @@ def _post(url: str, content: str):
     try:
         requests.post(url, json={"content": content}, timeout=10)
     except Exception as e:
-        logging.warning(f"Discord 알림 전송 실패: {e}")
+        log.warning(f"Discord 알림 전송 실패: {e}")
 
 
 def notify(title: str, detail: str = "", elapsed_sec: float | None = None, ok: bool = True):

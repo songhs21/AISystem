@@ -32,7 +32,9 @@ from config.PATH import (
     COMFY_URL, COMFY_WS, COMFY_OUTPUT, COMFY_INPUT, FFMPEG_PATH
 )
 from core.image.generate import _post_workflow, _ws_progress
+import logging
 
+log = logging.getLogger("v2v")
 
 # ============================================================
 # 경로 설정
@@ -92,16 +94,16 @@ STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 # ============================================================
 
 def load_detection_models():
-    print("BiRefNet 로드 중...")
+    log.info("BiRefNet 로드 중...")
     birefnet_session = ort.InferenceSession(
         str(MODEL_PATH),
         providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
     )
 
-    print("GroundingDINO 로드 중...")
+    log.info("GroundingDINO 로드 중...")
     gdino = load_model(str(GDINO_CONFIG), str(GDINO_CKPT))
 
-    print("SAM 로드 중...")
+    log.info("SAM 로드 중...")
     sam = sam_model_registry["vit_h"](checkpoint=str(SAM_CKPT))
     sam.to("cuda")
     predictor = SamPredictor(sam)
@@ -118,14 +120,14 @@ def load_detection_models():
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 
-    print("모델 로드 완료\n")
+    log.info("모델 로드 완료")
     return birefnet_session, gdino, predictor, sam, gdino_transform
 
 
 def unload_detection_models(birefnet_session, gdino, predictor, sam):
     del birefnet_session, gdino, predictor, sam
     torch.cuda.empty_cache()
-    print("감지 모델 언로드 완료")
+    log.info("감지 모델 언로드 완료")
 
 
 # ============================================================
@@ -155,14 +157,14 @@ def extract_frames(video_path: Path, frames_dir: Path) -> float:
         cv2.imwrite(str(frames_dir / f"frame_{idx:05d}.png"), frame)
         idx += 1
     cap.release()
-    print(f"프레임 추출 완료: {idx}장, FPS: {fps}")
+    log.info("프레임 추출 완료: %s장, FPS: %s", idx, fps)
     return fps
 
 
 def frames_to_video(output_dir: Path, fps: float):
     frames = sorted(output_dir.glob("comfy*.png"))
     if not frames:
-        print("합칠 프레임 없음")
+        log.warning("합칠 프레임 없음")
         return
     out_path = output_dir / "output.mp4"
     subprocess.run([
@@ -173,7 +175,7 @@ def frames_to_video(output_dir: Path, fps: float):
         "-pix_fmt", "yuv420p",
         str(out_path),
     ], check=True)
-    print(f"동영상 저장: {out_path}")
+    log.info("동영상 저장: %s", out_path)
 
 
 def free_comfyui_models():
@@ -182,7 +184,7 @@ def free_comfyui_models():
         json={"unload_models": True, "free_memory": True},
     )
     r.raise_for_status()
-    print("ComfyUI 모델 언로드 완료")
+    log.info("ComfyUI 모델 언로드 완료")
 
 
 # ============================================================
@@ -358,7 +360,7 @@ def merge_overlapping_masks(masks: dict, iou_threshold: float = 0.3) -> list:
             if union_area == 0:
                 continue
             iou = inter_area / union_area
-            print(f"  IoU {part_a} ↔ {part_b}: {iou:.3f}")
+            log.debug("IoU %s ↔ %s: %.3f", part_a, part_b, iou)
             if iou >= iou_threshold:
                 union(part_a, part_b)
 
@@ -374,7 +376,7 @@ def merge_overlapping_masks(masks: dict, iou_threshold: float = 0.3) -> list:
             merged_mask = cv2.bitwise_or(merged_mask, masks[part])
         merged.append({"mask": merged_mask, "parts": group})
         if len(group) > 1:
-            print(f"  → 병합 그룹: {' + '.join(group)}")
+            log.debug("병합 그룹: %s", " + ".join(group))
 
     return merged
 
@@ -541,7 +543,7 @@ def run_v2v_inpainting(
     for sub in ("mask", "ipa_ref", "inpaint", "merged"):
         (run_dir / sub).mkdir(parents=True, exist_ok=True)
 
-    print(f"처리 프레임: {len(frames)}")
+    log.info("처리 프레임: %d", len(frames))
 
     # ── 패스 1: 감지 ──────────────────────────────────────────
     birefnet_session, gdino, predictor, sam, gdino_transform = load_detection_models()
@@ -567,7 +569,7 @@ def run_v2v_inpainting(
         # depth_large = get_depth_map(frame_large, depth_estimator)
         # all_depths[frame_path] = cv2.resize(depth_large, (w, h), interpolation=cv2.INTER_LINEAR)
 
-        print(f"  {frame_path.name} 감지: {list(part_results.keys())}")
+        log.debug("%s 감지: %s", frame_path.name, list(part_results.keys()))
 
     unload_detection_models(birefnet_session, gdino, predictor, sam)
 

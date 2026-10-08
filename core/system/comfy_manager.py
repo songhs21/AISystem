@@ -6,10 +6,13 @@ import requests
 import psutil
 from config.PATH import COMFY_DIR, PYTHON_EMBEDED, COMFY_URL
 import queue
+import logging
+log = logging.getLogger("comfy")
+
+
 _comfy_log_queue = queue.Queue()
 
 _comfy_process = None
-
 def is_comfy_alive() -> bool:
     try:
         requests.get(f"{COMFY_URL}/system_stats", timeout=1)
@@ -30,30 +33,14 @@ def start_comfy():
         cwd=COMFY_DIR,
         creationflags=subprocess.CREATE_NEW_CONSOLE
     )
-
-    # _comfy_process = subprocess.Popen(
-    #     [PYTHON_EMBEDED, main_py],
-    #     cwd=COMFY_DIR,
-    #     stdout=subprocess.PIPE,
-    #     stderr=subprocess.STDOUT,
-    #     creationflags=subprocess.CREATE_NEW_CONSOLE
-    # )
-
-    # stdout을 별도 스레드에서 읽어 큐에 적재
-    # def _read_stdout():
-    #     for line in _comfy_process.stdout:
-    #         try:
-    #             _comfy_log_queue.put(line.decode('utf-8', errors='replace').rstrip())
-    #         except Exception:
-    #             break
-
-    # import threading
-    # threading.Thread(target=_read_stdout, daemon=True).start()
+    log.info("ComfyUI 프로세스 시작 요청")
 
 def get_comfy_log_queue():
     return _comfy_log_queue
 
 def kill_comfy():
+    log.info("ComfyUI 종료 요청")
+
     global _comfy_process
     # 직접 띄운 프로세스 종료
     if _comfy_process:
@@ -72,12 +59,13 @@ def kill_comfy():
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
     except Exception as e:
-        pass
+        log.warning("포트 점유 프로세스 종료 중 오류: %s", e)
 
 def wait_for_comfy(timeout: int = 60):
     start = time.time()
     while not is_comfy_alive():
         if time.time() - start > timeout:
+            log.error("ComfyUI 시작 시간 초과 (%ds)", timeout)
             raise TimeoutError("ComfyUI 시작 시간 초과")
         time.sleep(2)
 

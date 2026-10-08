@@ -51,6 +51,8 @@ async def run_inpaint_endpoint(
     final_prompt = prompt or (gen["prompt"] if gen else "")
     inpaint_mode = "detail" if mode == "detail" else "replace"
 
+    import logging
+    log = logging.getLogger("sd")
     def stream():
         try:
             output_path = None
@@ -72,6 +74,7 @@ async def run_inpaint_endpoint(
                 yield f"event: error\ndata: {json.dumps({'message': '인페인팅 결과 없음'})}\n\n"
 
         except Exception as e:
+            log.exception("inpaint 실패 gen_id=%s mode=%s", gen_id, inpaint_mode)
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
         finally:
             for tmp in [origin_path, mask_path]:

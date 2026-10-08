@@ -7,6 +7,8 @@ from core.llm_db import get_conn
 from core.llm.llm_memory import extract_session
 from core.system import comfy_idle
 from core.system.ollama_manager import is_ollama_alive, start_ollama, wait_for_ollama
+import logging
+log = logging.getLogger("mem")
 
 EXTRACT_MODEL = "sorc/qwen3.5-instruct-heretic:9b"
 OLLAMA_BASE = "http://localhost:11434"
@@ -125,11 +127,11 @@ def run_extraction(max_batches: int | None = None, ignore_idle: bool = False,
                     _extracting = True
                 res = extract_session(ids[0], EXTRACT_MODEL)
                 batches += 1
-                print(f"[MEM] 세션 {ids[0]} 묶음 처리: saved={res['saved']}, remaining={res['remaining']}")
+                log.info("세션 %s 묶음 처리: saved=%s remaining=%s", ids[0], res['saved'], res['remaining'])
                 if on_batch:
                     on_batch(batches)
             except Exception as e:
-                print(f"[MEM] 추출 실패: {e}")
+                log.exception("추출 실패 session=%s", ids[0])
                 _backoff_until = time.time() + BACKOFF_SEC
                 break
             finally:
@@ -184,7 +186,7 @@ def _loop():
                 continue
             run_extraction()
         except Exception as e:
-            print(f"[MEM] 워커 오류: {e}")
+            log.exception("워커 오류")
 
 
 def start():

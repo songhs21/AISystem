@@ -4,6 +4,10 @@ import time
 import requests
 from config.PATH import COMFY_URL
 from core.system.comfy_manager import is_comfy_alive
+import logging
+from core.system.log_setup import clip_text
+
+log = logging.getLogger("queue")
 
 IDLE_UNLOAD_SEC = 300   # ComfyUI에 작업이 없는 채로 이 시간이 지나면 모델 언로드
 POLL_SEC = 30
@@ -58,11 +62,11 @@ def unload_now() -> bool:
         if not r.ok:
             return False
     except Exception as e:
-        print(f"[COMFY] 언로드 실패: {e}")
+        log.warning("모델 언로드 실패: %s", e)
         return False
     with _lock:
         _loaded = False
-    print("[COMFY] 모델 언로드 완료")
+    log.info("모델 언로드 완료")
     unloaded_event.set()
     return True
 
@@ -86,9 +90,10 @@ def _loop():
             with _lock:
                 due = _loaded and busy is False and now - _last_busy >= IDLE_UNLOAD_SEC
             if due:
+                log.info("유휴 %d초 경과 → 모델 언로드 시도", IDLE_UNLOAD_SEC)
                 unload_now()
         except Exception as e:
-            print(f"[COMFY] 유휴 감시 오류: {e}")
+            log.exception("유휴 감시 오류")
 
 
 def start():

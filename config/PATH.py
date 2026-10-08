@@ -36,6 +36,10 @@ UPSCALE_MODEL_DIR   = COMFY_DIR/"models"/"upscale_models"
 # Gradio
 GRADIO_START_LOG    = PROJECT_ROOT/"data"/"logs"/"gradio_start.txt"
 GRADIO_LOG          = PROJECT_ROOT/"data"/"logs"/"gradio_log.txt"
+LOG_DIR      = PROJECT_ROOT/"data"/"logs"
+APP_LOG      = LOG_DIR/"app.log"
+ERROR_LOG    = LOG_DIR/"error.log"
+INCIDENT_DIR = LOG_DIR/"incidents"
 WORKER_LOG          = PROJECT_ROOT/"data"/"logs"/"worker.log"
 INPAINT_REQUEST     = PROJECT_ROOT/"data"/"inpaint_request.json"
 # workflow

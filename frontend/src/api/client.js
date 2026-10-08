@@ -1,5 +1,7 @@
 // src/api/client.js
 import axios from 'axios'
+import { crumb, sendClientLog } from '../utils/clientLog'
+
 
 export const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`
 
@@ -8,6 +10,31 @@ export const client = axios.create({
   timeout: 30000,
 })
 
+//Interceptor
+const QUIET = ['/api/sd/queue', '/api/sd/status', '/api/sd/jobs/active',
+               '/api/system/status', '/api/system/vram', '/api/system/ollama/vram']
+const isQuiet = url => QUIET.some(p => (url || '').startsWith(p))
+
+client.interceptors.response.use(
+  res => {
+    if (!isQuiet(res.config?.url)) {
+      crumb(`${(res.config?.method || 'get').toUpperCase()} ${res.config?.url} → ${res.status}`)
+    }
+    return res
+  },
+  err => {
+    const c = err.config || {}
+    const method = (c.method || 'get').toUpperCase()
+    const status = err.response?.status
+    const detail = err.response?.data?.detail
+    crumb(`${method} ${c.url} → ${status ?? 'ERR'}`)
+    sendClientLog(
+      status && status < 500 ? 'warn' : 'error',
+      `API 실패 ${method} ${c.url} status=${status ?? 'network'} ${detail ? 'detail=' + String(detail).slice(0, 300) : err.message}`,
+    )
+    return Promise.reject(err)
+  },
+)
 // ── SD ────────────────────────────────────────────────────
 
 export const sdApi = {

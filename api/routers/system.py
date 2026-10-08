@@ -1,7 +1,7 @@
 # api/routers/system.py
 import requests
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi.responses import (StreamingResponse, Response, PlainTextResponse)
 from pydantic import BaseModel
 from fastapi.responses import Response
 import mimetypes
@@ -15,6 +15,15 @@ import json
 from core.system.ollama_manager import (
     is_ollama_alive, start_ollama, kill_ollama, wait_for_ollama, get_ollama_vram_info
 )
+import logging
+import re
+import time
+from collections import deque
+from config.PATH import APP_LOG, ERROR_LOG, INCIDENT_DIR
+
+_client_log = logging.getLogger("client")
+_client_times = deque(maxlen=30)
+
 router = APIRouter(prefix="/api/system", tags=["system"])
 
 FORGE_URL  = "http://127.0.0.1:8188"
@@ -293,3 +302,67 @@ def ollama_vram():
 def ollama_unload_model(model: str = "sorc/qwen3.5-instruct-heretic:9b"):
     ok = unload_llm(model)
     return {"ok": ok}
+
+# ── 로그 ──────────────────────────────────────────────────
+
+class ClientLog(BaseModel):
+    level: str = "error"          # error | warn | info
+    message: str
+    stack: str | None = None
+    url: str | None = None
+    breadcrumbs: list[str] = []
+
+
+@router.post("/client-log")
+def post_client_log(req: ClientLog):
+    """프론트 오류·API 실패를 서버 로그 파일에 기록"""
+    now = time.time()
+    if len(_client_times) == _client_times.maxlen and now - _client_times[0] < 60:
+        return {"ok": True, "dropped": True}          # 폭주 방지: 60초에 30건
+    _client_times.append(now)
+
+    lvl = {"error": logging.ERROR, "warn": logging.WARNING}.get(req.level, logging.INFO)
+    parts = [req.message[:2000]]
+    if req.url:
+        parts.append(f"url={req.url[:300]}")
+    if req.breadcrumbs:
+        parts.append("breadcrumbs:\n  " + "\n  ".join(b[:200] for b in req.breadcrumbs[-20:]))
+    if req.stack:
+        parts.append("stack:\n" + req.stack[:5000])
+    _client_log.log(lvl, "\n".join(parts))
+    return {"ok": True}
+
+
+def _tail_lines(path: Path, n: int, max_bytes: int = 2_000_000) -> list[str]:
+    if not path.exists():
+        return []
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        f.seek(max(0, size - max_bytes))
+        data = f.read().decode("utf-8", errors="replace")
+    return data.splitlines()[-n:]
+
+
+@router.get("/logs/tail", response_class=PlainTextResponse)
+def logs_tail(lines: int = 200, file: str = "app"):
+    """file=app(전체) | error(WARNING 이상). 채팅에 붙여넣기용 텍스트"""
+    path = Path(ERROR_LOG if file == "error" else APP_LOG)
+    return "\n".join(_tail_lines(path, min(max(lines, 1), 2000)))
+
+
+@router.get("/logs/incidents")
+def logs_incidents(limit: int = 20):
+    if not Path(INCIDENT_DIR).exists():
+        return {"incidents": []}
+    files = sorted(Path(INCIDENT_DIR).glob("*.log"), reverse=True)[:limit]
+    return {"incidents": [f.name for f in files]}
+
+
+@router.get("/logs/incidents/{name}", response_class=PlainTextResponse)
+def logs_incident(name: str):
+    if not re.fullmatch(r"[0-9A-Za-z_\-]+\.log", name):
+        raise HTTPException(status_code=400, detail="invalid name")
+    path = Path(INCIDENT_DIR) / name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="not found")
+    return path.read_text(encoding="utf-8", errors="replace")

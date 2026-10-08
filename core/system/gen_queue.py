@@ -6,6 +6,10 @@ import uuid
 import requests
 from config.PATH import COMFY_URL
 import subprocess
+import logging
+from core.system.log_setup import clip_text
+
+log = logging.getLogger("queue")
 
 MAX_FINISHED = 10  # 메모리에 유지할 완료/실패 항목 수
 SHUTDOWN_DELAY_SEC = 60  # 큐 완료 후 PC 종료까지 유예 시간
@@ -45,6 +49,13 @@ def enqueue(kind: str, payload: dict, summary: dict, cleanup: list | None = None
         _items.append(item)
         _start_worker_once()
         _cv.notify()
+
+    log.info("enqueue id=%s kind=%s ckpt=%s lora=%s prompt=%s",
+             item["id"], kind, summary.get("checkpoint") or "-",
+             summary.get("lora") or "-", clip_text(summary.get("prompt")))
+    log.debug("enqueue id=%s prompt_full=%r negative_full=%r",
+              item["id"], summary.get("prompt"), summary.get("negative"))
+    
     return item["id"]
 
 
@@ -160,7 +171,7 @@ def abort_shutdown() -> bool:
         try:
             subprocess.run(["shutdown", "/a"], check=False)
         except Exception as e:
-            print(f"[QUEUE] 종료 취소 실패: {e}")
+            log.warning("종료 취소 실패: %s", e)
     return was_scheduled or was_prep
 
 
@@ -201,7 +212,7 @@ def _shutdown_sequence():
             should_abort=should_abort, on_batch=on_batch,
         )
     except Exception as e:
-        print(f"[QUEUE] 종료 전 메모리 추출 실패: {e}")
+        log.exception("종료 전 메모리 추출 실패")
 
     with _cv:
         _shutdown_prep = False
@@ -215,7 +226,7 @@ def _shutdown_sequence():
     try:
         subprocess.run(["shutdown", "/s", "/t", str(SHUTDOWN_DELAY_SEC)], check=True)
     except Exception as e:
-        print(f"[QUEUE] PC 종료 예약 실패: {e}")
+        log.error("PC 종료 예약 실패: %s", e)
         with _cv:
             _shutdown_at = None
 # ── 내부 ──────────────────────────────────────────────────
@@ -231,7 +242,7 @@ def _interrupt():
     try:
         requests.post(f"{COMFY_URL}/interrupt", timeout=5)
     except Exception as e:
-        print(f"[QUEUE] interrupt 실패: {e}")
+        log.warning("ComfyUI interrupt 실패: %s", e)
 
 
 def _cleanup(item: dict):
@@ -253,7 +264,7 @@ def _before_run(item: dict):
 
         memory_worker.wait_until_idle(on_wait=on_wait, should_abort=lambda: item["cancel"])
     except Exception as e:
-        print(f"[QUEUE] 메모리 추출 대기 실패: {e}")
+        log.exception("메모리 추출 대기 실패")
 
 _shutdown_armed = False
 _shutdown_at = None
@@ -268,6 +279,7 @@ def _worker():
             item = next(i for i in _items if i["status"] == "waiting")
             item["status"] = "running"
             item["text"] = "시작 중..."
+        log.info("item=%s kind=%s 시작", item["id"], item["kind"])
         _before_run(item)
         if item["cancel"]:
             _finish(item, "cancelled")
@@ -303,6 +315,7 @@ def _run_item(item: dict):
         if item["cancel"]:
             _finish(item, "cancelled")
         else:
+            log.exception("item=%s kind=%s 실패", item["id"], item["kind"])
             _finish(item, "error", error=str(e))
     finally:
         if gen is not None:
@@ -313,8 +326,11 @@ def _run_item(item: dict):
 
 
 def _finish(item: dict, status: str, result=None, error=None):
+    log.info("item=%s kind=%s 종료 status=%s total=%.1fs%s", item["id"], item["kind"], status,
+             time.time() - item["created_at"], f" error={error}" if error else "")
     _cleanup(item)
     with _cv:
+        
         if status == "cancelled":
             if item in _items:
                 _items.remove(item)

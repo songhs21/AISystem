@@ -1,0 +1,173 @@
+﻿api\main.py:8:1: I001 [*] Import block is un-sorted or un-formatted
+api\routers\history.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+api\routers\inpaint.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+api\routers\inpaint.py:4:17: F401 [*] `numpy` imported but unused
+api\routers\inpaint.py:8:26: F401 [*] `PIL.Image` imported but unused
+api\routers\inpaint.py:8:36: F401 [*] `PIL.ImageFilter` imported but unused
+api\routers\inpaint.py:8:49: F401 [*] `PIL.ImageEnhance` imported but unused
+api\routers\inpaint.py:9:38: F401 [*] `config.PATH.COMFY_OUTPUT` imported but unused
+api\routers\inpaint.py:26:30: B008 Do not perform function call `File` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+api\routers\inpaint.py:27:30: B008 Do not perform function call `File` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+api\routers\inpaint.py:42:10: ASYNC230 Async functions should not open files with blocking methods like `open`
+api\routers\inpaint.py:44:10: ASYNC230 Async functions should not open files with blocking methods like `open`
+api\routers\inpaint.py:83:17: E722 Do not use bare `except`
+api\routers\inpaint.py:83:17: S110 `try`-`except`-`pass` detected, consider logging the exception
+api\routers\llm.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+api\routers\llm.py:12:21: F401 [*] `pathlib.Path` imported but unused
+api\routers\llm.py:72:16: BLE001 Do not catch blind exception: `Exception`
+api\routers\sd.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+api\routers\sd.py:16:57: F401 [*] `core.image.generate.load_upscale_workflow` imported but unused
+api\routers\sd.py:64:11: UP033 [*] Use `@functools.cache` instead of `@functools.lru_cache(maxsize=None)`
+api\routers\sd.py:338:31: B008 Do not perform function call `File` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+api\routers\sd.py:345:14: ASYNC230 Async functions should not open files with blocking methods like `open`
+api\routers\sd.py:367:17: E722 Do not use bare `except`
+api\routers\sd.py:367:17: S110 `try`-`except`-`pass` detected, consider logging the exception
+api\routers\sd.py:439:41: F841 [*] Local variable `e` is assigned to but never used
+api\routers\sd.py:443:16: BLE001 Do not catch blind exception: `Exception`
+api\routers\sd.py:547:24: BLE001 Do not catch blind exception: `Exception`
+api\routers\sd.py:583:33: B008 Do not perform function call `File` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+api\routers\sd.py:589:14: ASYNC230 Async functions should not open files with blocking methods like `open`
+api\routers\system.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+api\routers\system.py:6:31: F811 [*] Redefinition of unused `Response` from line 4: `Response` redefined here
+api\routers\system.py:10:39: F401 [*] `core.system.comfy_manager.is_comfy_alive` imported but unused
+api\routers\system.py:16:49: F401 [*] `core.system.ollama_manager.wait_for_ollama` imported but unused
+api\routers\system.py:46:12: BLE001 Do not catch blind exception: `Exception`
+api\routers\system.py:46:25: F841 [*] Local variable `e` is assigned to but never used
+api\routers\system.py:54:12: BLE001 Do not catch blind exception: `Exception`
+api\routers\system.py:54:25: F841 [*] Local variable `e` is assigned to but never used
+api\routers\system.py:63:12: BLE001 Do not catch blind exception: `Exception`
+api\routers\system.py:63:25: F841 [*] Local variable `e` is assigned to but never used
+api\routers\system.py:72:12: BLE001 Do not catch blind exception: `Exception`
+api\routers\system.py:72:25: F841 [*] Local variable `e` is assigned to but never used
+api\routers\system.py:104:5: E722 Do not use bare `except`
+api\routers\system.py:104:5: S110 `try`-`except`-`pass` detected, consider logging the exception
+api\routers\system.py:171:12: BLE001 Do not catch blind exception: `Exception`
+api\routers\system.py:201:5: I001 [*] Import block is un-sorted or un-formatted
+api\routers\system.py:215:43: B008 Do not perform function call `File` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+api\routers\system.py:217:5: I001 [*] Import block is un-sorted or un-formatted
+api\routers\system.py:225:10: ASYNC230 Async functions should not open files with blocking methods like `open`
+api\routers\system.py:254:5: I001 [*] Import block is un-sorted or un-formatted
+api\routers\system.py:255:56: F811 [*] Redefinition of unused `is_comfy_alive` from line 10: `is_comfy_alive` redefined here
+config\PATH.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+core\db.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\image\generate.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\image\generate.py:12:26: F401 [*] `config.PATH.COMFY_DIR` imported but unused
+core\image\generate.py:14:5: F401 [*] `config.PATH.PYTHON_EMBEDED` imported but unused
+core\image\generate.py:18:8: F401 [*] `subprocess` imported but unused
+core\image\generate.py:19:8: F811 [*] Redefinition of unused `time` from line 8: `time` redefined here
+core\image\generate.py:20:16: F401 [*] `json` imported but unused
+core\image\generate.py:21:25: F401 [*] `config.PATH.LORA_TRIGGERS` imported but unused
+core\image\generate.py:56:85: RUF013 PEP 484 prohibits implicit `Optional`
+core\image\generate.py:73:21: S110 `try`-`except`-`pass` detected, consider logging the exception
+core\image\generate.py:73:28: BLE001 Do not catch blind exception: `Exception`
+core\image\generate.py:86:13: SIM102 Use a single `if` statement instead of nested `if` statements
+core\image\generate.py:155:42: RUF013 PEP 484 prohibits implicit `Optional`
+core\image\generate.py:189:61: RUF013 PEP 484 prohibits implicit `Optional`
+core\image\generate.py:237:28: RUF013 PEP 484 prohibits implicit `Optional`
+core\image\generate.py:252:5: I001 [*] Import block is un-sorted or un-formatted
+core\image\generate.py:255:53: RUF010 [*] Use explicit conversion flag
+core\image\generate.py:369:24: RUF013 PEP 484 prohibits implicit `Optional`
+core\image\generate.py:426:29: RUF013 PEP 484 prohibits implicit `Optional`
+core\image\generate.py:440:5: I001 [*] Import block is un-sorted or un-formatted
+core\image\generate.py:502:5: I001 [*] Import block is un-sorted or un-formatted
+core\image\generate.py:502:20: F811 [*] Redefinition of unused `_json` from line 20: `_json` redefined here
+core\image\generate.py:503:29: F811 [*] Redefinition of unused `LORA_TRIGGERS` from line 21: `LORA_TRIGGERS` redefined here
+core\image\generate.py:510:34: SIM118 [*] Use `key in dict` instead of `key in dict.keys()`
+core\image\generate.py:528:26: PERF102 When using only the values of a dict use the `values()` method
+core\image\generate.py:540:5: S110 `try`-`except`-`pass` detected, consider logging the exception
+core\image\generate.py:540:12: BLE001 Do not catch blind exception: `Exception`
+core\image\preference.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\image\preference.py:30:17: DTZ005 `datetime.datetime.now()` called without a `tz` argument
+core\image\preference.py:129:11: DTZ005 `datetime.datetime.now()` called without a `tz` argument
+core\image\tag.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\image\tag.py:8:68: F401 [*] `config.constants.CAT_KO` imported but unused
+core\image\tag.py:93:61: SIM118 Use `key in dict` instead of `key in dict.keys()`
+core\llm\llm_memory.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\llm\memory_worker.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\llm\memory_worker.py:89:5: S110 `try`-`except`-`pass` detected, consider logging the exception
+core\llm\memory_worker.py:89:12: BLE001 Do not catch blind exception: `Exception`
+core\llm\memory_worker.py:133:33: F841 [*] Local variable `e` is assigned to but never used
+core\llm\memory_worker.py:188:29: F841 [*] Local variable `e` is assigned to but never used
+core\llm_db.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\system\comfy_idle.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\system\comfy_idle.py:8:35: F401 [*] `core.system.log_setup.clip_text` imported but unused
+core\system\comfy_idle.py:43:12: BLE001 Do not catch blind exception: `Exception`
+core\system\comfy_idle.py:64:12: BLE001 Do not catch blind exception: `Exception`
+core\system\comfy_idle.py:95:29: F841 [*] Local variable `e` is assigned to but never used
+core\system\comfy_manager.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\system\comfy_manager.py:6:8: F401 [*] `psutil` imported but unused
+core\system\comfy_manager.py:20:5: E722 Do not use bare `except`
+core\system\comfy_manager.py:61:12: BLE001 Do not catch blind exception: `Exception`
+core\system\comfy_manager.py:96:5: E722 Do not use bare `except`
+core\system\gen_queue.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\system\gen_queue.py:173:16: BLE001 Do not catch blind exception: `Exception`
+core\system\gen_queue.py:195:9: I001 [*] Import block is un-sorted or un-formatted
+core\system\gen_queue.py:214:25: F841 [*] Local variable `e` is assigned to but never used
+core\system\gen_queue.py:228:12: BLE001 Do not catch blind exception: `Exception`
+core\system\gen_queue.py:244:12: BLE001 Do not catch blind exception: `Exception`
+core\system\gen_queue.py:252:9: S110 `try`-`except`-`pass` detected, consider logging the exception
+core\system\gen_queue.py:252:16: BLE001 Do not catch blind exception: `Exception`
+core\system\gen_queue.py:266:25: F841 [*] Local variable `e` is assigned to but never used
+core\system\gen_queue.py:324:13: S110 `try`-`except`-`pass` detected, consider logging the exception
+core\system\gen_queue.py:324:20: BLE001 Do not catch blind exception: `Exception`
+core\system\log_setup.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\system\log_setup.py:42:16: BLE001 Do not catch blind exception: `Exception`
+core\system\log_setup.py:71:16: BLE001 Do not catch blind exception: `Exception`
+core\system\log_setup.py:118:13: S110 `try`-`except`-`pass` detected, consider logging the exception
+core\system\log_setup.py:118:20: BLE001 Do not catch blind exception: `Exception`
+core\system\notify.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\system\notify.py:13:12: BLE001 Do not catch blind exception: `Exception`
+core\system\notify.py:20:12: BLE001 Do not catch blind exception: `Exception`
+core\system\notify.py:21:9: LOG015 `warning()` call on root logger
+core\system\ollama_manager.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\system\ollama_manager.py:15:5: E722 Do not use bare `except`
+core\system\ollama_manager.py:60:5: E722 Do not use bare `except`
+core\system\watcher.py:2:1: I001 [*] Import block is un-sorted or un-formatted
+core\system\watcher.py:22:9: SIM103 Return the condition directly
+core\system\watcher.py:25:12: BLE001 Do not catch blind exception: `Exception`
+core\system\watcher.py:26:9: LOG015 `error()` call on root logger
+core\system\watcher.py:31:57: RUF013 PEP 484 prohibits implicit `Optional`
+core\system\watcher.py:32:5: LOG015 `info()` call on root logger
+core\system\watcher.py:48:17: LOG015 `warning()` call on root logger
+core\system\watcher.py:50:21: LOG015 `error()` call on root logger
+core\system\watcher.py:56:17: LOG015 `info()` call on root logger
+core\system\watcher.py:65:21: LOG015 `info()` call on root logger
+core\system\watcher.py:75:21: LOG015 `info()` call on root logger
+core\system\watcher.py:77:21: LOG015 `error()` call on root logger
+core\system\watcher.py:87:17: LOG015 `warning()` call on root logger
+core\system\watcher.py:89:17: LOG015 `error()` call on root logger
+core\system\watcher.py:92:12: BLE001 Do not catch blind exception: `Exception`
+core\system\watcher.py:93:9: LOG015 `error()` call on root logger
+core\video\i2v_generate.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+core\video\i2v_generate.py:4:8: F401 [*] `copy` imported but unused
+core\video\i2v_generate.py:7:8: F401 [*] `shutil` imported but unused
+core\video\i2v_generate.py:15:5: F401 [*] `config.PATH.COMFY_URL` imported but unused
+core\video\i2v_generate.py:15:53: F401 [*] `config.PATH.FFMPEG_PATH` imported but unused
+core\video\i2v_generate.py:17:63: F401 [*] `core.image.generate.apply_lora_patch` imported but unused
+core\video\i2v_generate.py:77:12: RUF013 PEP 484 prohibits implicit `Optional`
+core\video\i2v_generate.py:78:13: RUF013 PEP 484 prohibits implicit `Optional`
+core\video\i2v_generate.py:79:13: RUF013 PEP 484 prohibits implicit `Optional`
+core\video\i2v_generate.py:80:17: RUF013 PEP 484 prohibits implicit `Optional`
+core\video\i2v_generate.py:81:17: RUF013 PEP 484 prohibits implicit `Optional`
+core\video\i2v_generate.py:82:20: RUF013 PEP 484 prohibits implicit `Optional`
+core\video\i2v_generate.py:83:10: RUF013 PEP 484 prohibits implicit `Optional`
+core\video\i2v_generate.py:84:17: RUF013 PEP 484 prohibits implicit `Optional`
+core\video\i2v_generate.py:153:5: UP028 Replace `yield` over `for` loop with `yield from`
+core\video\v2v_inpainting.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+core\video\v2v_inpainting.py:3:8: F401 [*] `os` imported but unused
+core\video\v2v_inpainting.py:6:8: F401 [*] `time` imported but unused
+core\video\v2v_inpainting.py:9:8: F401 [*] `shutil` imported but unused
+core\video\v2v_inpainting.py:21:26: F401 [*] `transformers.pipeline` imported but unused
+core\video\v2v_inpainting.py:27:1: I001 [*] Import block is un-sorted or un-formatted
+core\video\v2v_inpainting.py:32:40: F401 [*] `config.PATH.COMFY_INPUT` imported but unused
+core\video\v2v_inpainting.py:278:13: PLC0206 Extracting value from dictionary without calling `.items()`
+core\video\v2v_inpainting.py:314:38: C401 Unnecessary generator (rewrite as a set comprehension)
+core\video\v2v_inpainting.py:428:25: RUF046 Value being cast to `int` is already an integer
+core\video\v2v_inpainting.py:429:25: RUF046 Value being cast to `int` is already an integer
+core\video\v2v_inpainting.py:431:25: RUF046 Value being cast to `int` is already an integer
+core\video\v2v_inpainting.py:432:25: RUF046 Value being cast to `int` is already an integer
+core\video\v2v_inpainting.py:488:29: PERF102 When using only the values of a dict use the `values()` method
+core\video\v2v_inpainting.py:526:17: RUF013 PEP 484 prohibits implicit `Optional`
+core\video\v2v_inpainting.py:542:28: DTZ005 `datetime.datetime.now()` called without a `tz` argument
+Found 171 errors.
+[*] 76 fixable with the `--fix` option (26 hidden fixes can be enabled with the `--unsafe-fixes` option).

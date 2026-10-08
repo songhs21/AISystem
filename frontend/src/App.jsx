@@ -6,6 +6,7 @@ import HistoryPage from './pages/HistoryPage'
 import LLMPage from './pages/LLMPage'
 import SystemStatus from './components/SystemStatus'
 import './styles/global.css'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30000 } }
@@ -53,7 +54,7 @@ export default function App() {
               height: '100%'
             }}
           >
-            <GeneratePage quote={quote} />
+            <ErrorBoundary><GeneratePage quote={quote} /></ErrorBoundary>
           </div>
 
           <div
@@ -64,7 +65,7 @@ export default function App() {
               height: '100%'
             }}
           >
-            <HistoryPage onQuote={handleQuote} />
+            <ErrorBoundary><HistoryPage onQuote={handleQuote} /></ErrorBoundary>
           </div>
 
           <div
@@ -75,7 +76,7 @@ export default function App() {
               height: '100%'
             }}
           >
-            <LLMPage onQuote={handleQuote} />
+            <ErrorBoundary><LLMPage onQuote={handleQuote} /></ErrorBoundary>
           </div>
         </main>
       </div>

@@ -23,6 +23,10 @@ from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comf
 from core.system.notify import notify
 from core.system import jobs
 from core.system import gen_queue
+import logging
+from core.system.log_setup import clip_text
+
+log = logging.getLogger("sd")
 
 router = APIRouter(prefix="/api/sd", tags=["sd"])
 
@@ -142,7 +146,7 @@ def _t2i_events(req: GenerateRequest):
     yield {"type": "progress", "value": float, "text": str}
     yield {"type": "done", "gen_id": int, "image_path": str}
     """
-    print(f"[SD] lora_name={req.lora_name}, lora_strength={req.lora_strength}")
+    log.debug("t2i 요청 lora=%s strength=%s", req.lora_name, req.lora_strength)
     if not is_comfy_alive():
         yield {"type": "progress", "value": 0.0, "text": "ComfyUI 시작 중..."}
         start_comfy()
@@ -195,6 +199,9 @@ def _t2i_events(req: GenerateRequest):
 
     # gen_id 선발급
     pre_gen_id = save_generation_start("pending", user_prompt, seed, req.checkpoint)
+    log.info("t2i gen_id=%s ckpt=%s seed=%s %sx%s lora=%s prompt=%s",
+             pre_gen_id, req.checkpoint, seed, w, h, req.lora_name or "-", clip_text(user_prompt))
+    log.debug("t2i gen_id=%s prompt_full=%r negative_full=%r", pre_gen_id, user_prompt, negative)
     workflow["9"]["inputs"]["filename_prefix"] = f"ComfyUI_{pre_gen_id:04d}_generated"
 
     # 생성 DNA 기록 (실제 워크플로우에 들어간 값 기준)
@@ -253,6 +260,7 @@ def generate(req: GenerateRequest):
                 elif ev["type"] == "done":
                     yield f"event: done\ndata: {json.dumps({'gen_id': ev['gen_id'], 'image_path': ev['image_path']})}\n\n"
         except Exception as e:
+            log.exception("t2i 스트림 실패")
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -282,6 +290,7 @@ def upscale(req: UpscaleRequest):
                     update_upscaled_image(req.gen_id, filename)
                     yield f"event: done\ndata: {json.dumps({'image_path': event['image_path'], 'filename': filename})}\n\n"
         except Exception as e:
+            log.exception("upscale 실패 gen_id=%s", req.gen_id)
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -310,6 +319,7 @@ def i2i(req: I2IRequest):
                     filename = os.path.basename(event["image_path"])
                     yield f"event: done\ndata: {json.dumps({'image_path': event['image_path'], 'filename': filename})}\n\n"
         except Exception as e:
+            log.exception("i2i 실패 image=%s", req.image_path)
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -348,6 +358,7 @@ async def i2i_mask(
                     filename = os.path.basename(event["image_path"])
                     yield f"event: done\ndata: {json.dumps({'image_path': event['image_path'], 'filename': filename})}\n\n"
         except Exception as e:
+            log.exception("i2i-mask 실패 image=%s", image_path)
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
         finally:
             if tmp_mask_path and os.path.exists(tmp_mask_path):
@@ -426,7 +437,7 @@ def i2v(req: I2VRequest):
                             },
                         )
                     except Exception as e:
-                        print(f"[I2V] DB 등록 실패: {e}")
+                        log.exception("I2V DB 등록 실패")
                     jobs.finish_job(job_id, {"video_path": video_path})
                     notify("I2V 완료", os.path.basename(video_path), _time.time() - t0)
         except Exception as e:

@@ -12,7 +12,7 @@ MAX_INPUT_CHARS = 6000
 # 코드블록 하나에서 남길 최대 글자 수
 MAX_CODE_CHARS = 300
 
-_logger = logging.getLogger("llm_memory")
+_logger = logging.getLogger("mem")
 
 EXTRACT_SYSTEM_PROMPT = """너는 대화에서 장기적으로 기억할 가치가 있는 정보만 뽑아 JSON으로 정리하는 도구다.
 

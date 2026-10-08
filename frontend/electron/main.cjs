@@ -1,3 +1,4 @@
+/* global require, process, __dirname */
 // electron/main.cjs
 const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain } = require('electron')
 const path = require('path')

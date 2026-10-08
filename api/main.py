@@ -1,22 +1,22 @@
 # api/main.py
 import sys
-import logging
 from pathlib import Path
 
 # 프로젝트 루트를 sys.path에 추가
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from config.version import APP_VERSION
 from core.db import init_db
-from api.routers import sd, history, inpaint, system
 from core.llm_db import init_llm_db
-from api.routers import llm as llm_router
-from core.system import comfy_idle
 from core.llm import memory_worker
+from core.system import comfy_idle
+from core.system.log_setup import setup_logging
+from api.routers import sd, history, inpaint, system
+from api.routers import llm as llm_router
 
-app = FastAPI(title="AISystem")
+app = FastAPI(title="AISystem", version=APP_VERSION)
 
 # CORS (React 개발 서버 허용)
 app.add_middleware(
@@ -39,19 +39,13 @@ app.include_router(llm_router.router)
 
 @app.on_event("startup")
 def startup():
+    setup_logging()      # uvicorn 로깅 설정 이후에 실행되어야 하므로 startup에서 호출
     init_db()
     init_llm_db()
-    logging.info("AISystem API 시작")
+    comfy_idle.start()
+    memory_worker.start()
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-@app.on_event("startup")
-def startup():
-    init_db()
-    init_llm_db()
-    comfy_idle.start()
-    memory_worker.start()
-    logging.info("AISystem API 시작")

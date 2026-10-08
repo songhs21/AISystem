@@ -15,7 +15,10 @@ from config.PATH import (
     COMFY_URL, COMFY_WS, COMFY_OUTPUT, COMFY_INPUT, FFMPEG_PATH
 )
 from core.image.generate import _post_workflow, _ws_progress, apply_lora_patch
+import logging
+from core.system.log_setup import clip_text
 
+log = logging.getLogger("sd")
 
 I2V_WORKFLOW_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "workflow" / "i2v_workflow.json"
 
@@ -88,11 +91,14 @@ def run_i2v(
     import random
 
     client_id = str(uuid.uuid4())
-    print(client_id[:8])
 
     _w = width if width is not None else I2V_DEFAULTS["width"]
     _h = height if height is not None else I2V_DEFAULTS["height"]
-
+    
+    log.info("i2v 시작 client=%s image=%s %sx%s length=%s seed=%s prompt=%s",
+             client_id[:8], os.path.basename(str(image_path)), _w, _h,
+             length or I2V_DEFAULTS["length"], seed, clip_text(prompt))
+    
     filename = f"i2v_input_{client_id[:8]}.png"
     dst = COMFY_INPUT / filename
     pad_to_wan_resolution(Path(image_path), dst, _w, _h)

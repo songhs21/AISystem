@@ -15,6 +15,7 @@ dist-electron/
 # DB 및 로그
 data/
 *.log
+data/logs/
 worker.log
 
 # 모델
