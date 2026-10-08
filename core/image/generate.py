@@ -9,14 +9,12 @@ import time
 import uuid
 import random
 from config.PATH import (
-    COMFY_URL, COMFY_WS, COMFY_DIR, COMFY_INPUT, COMFY_OUTPUT,
+    COMFY_URL, COMFY_WS, COMFY_INPUT, COMFY_OUTPUT,
     UPSCALE_WORKFLOW_DIR, INPAINTING_DIR, DETAIL_INPAINTING_DIR,
-    PYTHON_EMBEDED, I2IBASE, I2I_MASK
+    I2IBASE, I2I_MASK
 )
 from core.system.comfy_manager import is_comfy_alive, start_comfy, wait_for_comfy
 from core.db import get_conn
-import subprocess
-import time
 import json as _json
 from config.PATH import LORA_TRIGGERS
 from core.system.gen_queue import GenerationCancelled
@@ -499,8 +497,6 @@ def find_node_by_type(workflow: dict, class_type: str) -> str | None:
 
 
 def apply_lora_patch(workflow: dict, lora_name: str, strength: float = 0.8, positive_node_id: str = "6") -> dict:
-    import json as _json
-    from config.PATH import LORA_TRIGGERS
 
     ckpt_id     = find_node_by_type(workflow, "CheckpointLoaderSimple")
     ksampler_id = find_node_by_type(workflow, "KSampler")

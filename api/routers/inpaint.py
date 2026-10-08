@@ -1,12 +1,10 @@
 # api/routers/inpaint.py
 import os
 import json
-import numpy as np
 from fastapi import APIRouter, UploadFile, File, Form
 from typing import Annotated
 from fastapi.responses import StreamingResponse
-from PIL import Image as PILImage, ImageFilter, ImageEnhance
-from config.PATH import COMFY_INPUT, COMFY_OUTPUT
+from config.PATH import COMFY_INPUT
 from config.constants import NEGATIVE_BASE
 from core.image.generate import run_inpaint
 from core.image.preference import get_generation_by_id, save_inpainting
@@ -80,7 +78,7 @@ async def run_inpaint_endpoint(
             for tmp in [origin_path, mask_path]:
                 try:
                     os.remove(tmp)
-                except:
+                except OSError:
                     pass
 
     return StreamingResponse(stream(), media_type="text/event-stream")

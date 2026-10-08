@@ -9,7 +9,6 @@ import os
 import json
 from fastapi.responses import StreamingResponse
 import logging
-from pathlib import Path
 from core.llm.llm_memory import extract_session, list_memories, delete_memory, update_memory
 from core.llm import memory_worker
 

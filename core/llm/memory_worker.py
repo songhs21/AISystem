@@ -130,7 +130,7 @@ def run_extraction(max_batches: int | None = None, ignore_idle: bool = False,
                 log.info("세션 %s 묶음 처리: saved=%s remaining=%s", ids[0], res['saved'], res['remaining'])
                 if on_batch:
                     on_batch(batches)
-            except Exception as e:
+            except Exception:
                 log.exception("추출 실패 session=%s", ids[0])
                 _backoff_until = time.time() + BACKOFF_SEC
                 break
@@ -185,7 +185,7 @@ def _loop():
             if time.time() < _backoff_until:
                 continue
             run_extraction()
-        except Exception as e:
+        except Exception:
             log.exception("워커 오류")
 
 

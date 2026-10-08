@@ -1,10 +1,11 @@
 # core/system/notify.py
 import json
-import logging
 import threading
 import requests
 from config.PATH import NOTIFY_CONFIG_PATH
+import logging
 
+log = logging.getLogger("system")
 
 def _load_config() -> dict:
     try:

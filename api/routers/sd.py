@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from config.PATH import CHECKPOINT_DIR, WORKFLOW_PATH, COMFY_INPUT
 from config.constants import NEGATIVE_BASE, MODEL_RESOLUTION
-from core.image.generate import run_comfy, run_upscale, load_upscale_workflow, run_i2i, run_i2i_mask
+from core.image.generate import run_comfy, run_upscale, run_i2i, run_i2i_mask
 from core.image.preference import (
     save_generation_start, get_generation_by_prompt_id, update_upscaled_image,
     update_generation_meta, save_video,
@@ -364,7 +364,7 @@ async def i2i_mask(
             if tmp_mask_path and os.path.exists(tmp_mask_path):
                 try:
                     os.remove(tmp_mask_path)
-                except:
+                except OSError:
                     pass
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -436,7 +436,7 @@ def i2v(req: I2VRequest):
                                 "low_steps": req.low_steps,
                             },
                         )
-                    except Exception as e:
+                    except Exception:
                         log.exception("I2V DB 등록 실패")
                     jobs.finish_job(job_id, {"video_path": video_path})
                     notify("I2V 완료", os.path.basename(video_path), _time.time() - t0)

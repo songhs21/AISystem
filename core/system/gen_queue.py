@@ -211,7 +211,7 @@ def _shutdown_sequence():
             max_batches=SHUTDOWN_MAX_BATCHES, ignore_idle=True,
             should_abort=should_abort, on_batch=on_batch,
         )
-    except Exception as e:
+    except Exception:
         log.exception("종료 전 메모리 추출 실패")
 
     with _cv:
@@ -263,7 +263,7 @@ def _before_run(item: dict):
                 item["text"] = "LLM 메모리 추출 중 — 묶음 완료 후 시작"
 
         memory_worker.wait_until_idle(on_wait=on_wait, should_abort=lambda: item["cancel"])
-    except Exception as e:
+    except Exception:
         log.exception("메모리 추출 대기 실패")
 
 _shutdown_armed = False

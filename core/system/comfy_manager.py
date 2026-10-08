@@ -3,7 +3,6 @@ import os
 import subprocess
 import time
 import requests
-import psutil
 from config.PATH import COMFY_DIR, PYTHON_EMBEDED, COMFY_URL
 import queue
 import logging
@@ -17,7 +16,7 @@ def is_comfy_alive() -> bool:
     try:
         requests.get(f"{COMFY_URL}/system_stats", timeout=1)
         return True
-    except:
+    except requests.RequestException:
         return False
 
 

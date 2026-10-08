@@ -3,7 +3,6 @@ import requests
 from fastapi import APIRouter
 from fastapi.responses import (StreamingResponse, Response, PlainTextResponse)
 from pydantic import BaseModel
-from fastapi.responses import Response
 import mimetypes
 from fastapi import HTTPException
 import os
@@ -13,7 +12,7 @@ from pathlib import Path
 from fastapi import UploadFile, File
 import json
 from core.system.ollama_manager import (
-    is_ollama_alive, start_ollama, kill_ollama, wait_for_ollama, get_ollama_vram_info
+    is_ollama_alive, start_ollama, kill_ollama, get_ollama_vram_info
 )
 import logging
 import re
@@ -43,7 +42,7 @@ def unload_sd():
     try:
         requests.post(f"{FORGE_URL}/sdapi/v1/unload-checkpoint", timeout=10)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 
@@ -51,7 +50,7 @@ def reload_sd():
     try:
         requests.post(f"{FORGE_URL}/sdapi/v1/reload-checkpoint", timeout=10)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 
@@ -60,7 +59,7 @@ def unload_llm(model: str):
         requests.post(f"{OLLAMA_URL}/api/generate",
                       json={"model": model, "keep_alive": 0}, timeout=10)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 
@@ -69,7 +68,7 @@ def load_llm(model: str):
         requests.post(f"{OLLAMA_URL}/api/generate",
                       json={"model": model, "keep_alive": -1, "prompt": ""}, timeout=30)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 
@@ -101,7 +100,7 @@ def system_status():
     try:
         requests.get(f"{FORGE_URL}/sdapi/v1/options", timeout=2)
         sd_alive = True
-    except:
+    except requests.RequestException:
         pass
 
     llm_alive = is_ollama_alive()
@@ -252,7 +251,7 @@ async def upload_image(file: UploadFile = File(...)):
 @router.get("/comfy/start-stream")
 def comfy_start_stream():
     import time
-    from core.system.comfy_manager import start_comfy, is_comfy_alive
+    from core.system.comfy_manager import start_comfy
 
     def stream():
         start_comfy()

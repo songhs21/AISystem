@@ -1,10 +1,8 @@
 # core/video/i2v_generate.py
 
 import json
-import copy
 import glob
 import os
-import shutil
 import time
 import uuid
 import websocket
@@ -12,9 +10,9 @@ from pathlib import Path
 from PIL import Image as PILImage
 
 from config.PATH import (
-    COMFY_URL, COMFY_WS, COMFY_OUTPUT, COMFY_INPUT, FFMPEG_PATH
+    COMFY_WS, COMFY_OUTPUT, COMFY_INPUT
 )
-from core.image.generate import _post_workflow, _ws_progress, apply_lora_patch
+from core.image.generate import _post_workflow, _ws_progress
 import logging
 from core.system.log_setup import clip_text
 

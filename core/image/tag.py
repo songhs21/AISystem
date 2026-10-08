@@ -5,7 +5,7 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image
 from config.PATH import MODEL_PATH, MODEL_TAG_PATH, TAG_META_PATH
-from config.constants import TAG_CATEGORY_ORDER, EXTRA_CATEGORIES, CAT_KO, BLACKLIST
+from config.constants import TAG_CATEGORY_ORDER, EXTRA_CATEGORIES, BLACKLIST
 from core.db import get_conn
 
 

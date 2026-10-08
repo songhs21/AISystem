@@ -5,7 +5,6 @@ import requests
 from config.PATH import COMFY_URL
 from core.system.comfy_manager import is_comfy_alive
 import logging
-from core.system.log_setup import clip_text
 
 log = logging.getLogger("queue")
 
@@ -92,7 +91,7 @@ def _loop():
             if due:
                 log.info("유휴 %d초 경과 → 모델 언로드 시도", IDLE_UNLOAD_SEC)
                 unload_now()
-        except Exception as e:
+        except Exception:
             log.exception("유휴 감시 오류")
 
 

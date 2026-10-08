@@ -12,7 +12,7 @@ def is_ollama_alive() -> bool:
     try:
         requests.get(f"{OLLAMA_URL}/api/tags", timeout=1)
         return True
-    except:
+    except requests.RequestException:
         return False
 
 

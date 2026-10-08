@@ -1,12 +1,9 @@
 # core/video/v2v_inpainting.py
 
-import os
 import sys
 import json
-import time
 import uuid
 import copy
-import shutil
 import subprocess
 import requests
 import websocket
@@ -18,7 +15,6 @@ import onnxruntime as ort
 import torch
 import torchvision
 from PIL import Image as PILImage
-from transformers import pipeline
 from datetime import datetime
 import re
 
@@ -29,7 +25,7 @@ from groundingdino.datasets import transforms as T
 from segment_anything import sam_model_registry, SamPredictor
 
 from config.PATH import (
-    COMFY_URL, COMFY_WS, COMFY_OUTPUT, COMFY_INPUT, FFMPEG_PATH
+    COMFY_URL, COMFY_WS, COMFY_OUTPUT, FFMPEG_PATH
 )
 from core.image.generate import _post_workflow, _ws_progress
 import logging
