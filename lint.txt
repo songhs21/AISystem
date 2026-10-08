@@ -3,23 +3,23 @@
 > oxlint src
 
 
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/QueueStrip.jsx:19:17]
+ 18 | // 큐 항목 → 뷰포트 메타 카드용 정보
+ 19 | export function itemMeta(item) {
+    :                 ^^^^^^^^
+ 20 |   const s = item.summary || {}
+    `----
+
   ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
      ,-[src/components/MemoryPanel.jsx:134:14]
  133 |       setError(null)
  134 |     } catch (e) {
      :              |
      :              `-- 'e' is declared here
- 135 |       setError('硫붾え由щ? 遺덈윭?ㅼ? 紐삵뻽?듬땲??)
+ 135 |       setError('메모리를 불러오지 못했습니다')
      `----
   help: Consider handling this error.
-
-  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
-    ,-[src/components/QueueStrip.jsx:19:17]
- 18 | // ????ぉ ??酉고룷??硫뷀? 移대뱶???뺣낫
- 19 | export function itemMeta(item) {
-    :                 ^^^^^^^^
- 20 |   const s = item.summary || {}
-    `----
 
   ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
      ,-[src/pages/LLMPage.jsx:147:14]
@@ -27,7 +27,7 @@
  147 |     } catch (e) {
      :              |
      :              `-- 'e' is declared here
- 148 |       setError('?몄뀡 紐⑸줉??遺덈윭?ㅼ? 紐삵뻽?듬땲??)
+ 148 |       setError('세션 목록을 불러오지 못했습니다')
      `----
   help: Consider handling this error.
 
@@ -37,19 +37,9 @@
  157 |     } catch (e) {
      :              |
      :              `-- 'e' is declared here
- 158 |       setError('???湲곕줉??遺덈윭?ㅼ? 紐삵뻽?듬땲??)
+ 158 |       setError('대화 기록을 불러오지 못했습니다')
      `----
   help: Consider handling this error.
-
-  ! eslint(no-unused-vars): Parameter 'node' is declared but never used. Unused parameters should start with a '_'.
-     ,-[src/pages/LLMPage.jsx:170:19]
- 169 |           components={{
- 170 |             a: ({ node, ...props }) => (
-     :                   ^^|^
-     :                     `-- 'node' is declared here
- 171 |               <a {...props} target="_blank" rel="noopener noreferrer" />
-     `----
-  help: Consider removing this parameter.
 
   ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
      ,-[src/pages/LLMPage.jsx:188:12]
@@ -57,7 +47,7 @@
  188 |   } catch (e) {
      :            |
      :            `-- 'e' is declared here
- 189 |     setError('?대?吏 ?낅줈?쒖뿉 ?ㅽ뙣?덉뒿?덈떎')
+ 189 |     setError('이미지 업로드에 실패했습니다')
      `----
   help: Consider handling this error.
 
@@ -67,7 +57,7 @@
  319 |     } catch (e) {
      :              |
      :              `-- 'e' is declared here
- 320 |       setError('???몄뀡??留뚮뱾吏 紐삵뻽?듬땲??)
+ 320 |       setError('새 세션을 만들지 못했습니다')
      `----
   help: Consider handling this error.
 
@@ -77,7 +67,7 @@
  336 |     } catch (e) {
      :              |
      :              `-- 'e' is declared here
- 337 |       setError('?몄뀡 ??젣???ㅽ뙣?덉뒿?덈떎')
+ 337 |       setError('세션 삭제에 실패했습니다')
      `----
   help: Consider handling this error.
 
@@ -87,7 +77,7 @@
  354 |     } catch (e) {
      :              |
      :              `-- 'e' is declared here
- 355 |       setError('?쒕ぉ ?섏젙???ㅽ뙣?덉뒿?덈떎')
+ 355 |       setError('제목 수정에 실패했습니다')
      `----
   help: Consider handling this error.
 
@@ -115,149 +105,138 @@
     `----
   help: Either include it or remove the dependency array.
 
-  ! eslint(no-unused-vars): Identifier 'useRef' is imported but never used.
-   ,-[src/pages/HistoryPage.jsx:2:29]
- 1 | // src/pages/HistoryPage.jsx
- 2 | import { useState, useMemo, useRef } from 'react'
-   :                             ^^^|^^
-   :                                `-- 'useRef' is imported here
- 3 | import { useQuery, useQueryClient } from '@tanstack/react-query'
-   `----
-  help: Consider removing this import.
-
-  ! eslint(no-unused-vars): Variable 'selectedId' is declared but never used. Unused variables should start with a '_'.
-    ,-[src/pages/HistoryPage.jsx:51:10]
- 50 |   // ?좏깮??gen (?몄쭛/?명럹?명똿)
- 51 |   const [selectedId, setSelectedId]     = useState(null)
-    :          ^^^^^|^^^^
-    :               `-- 'selectedId' is declared here
- 52 |   const [inpaintTarget, setInpaintTarget] = useState(null)  // image_path
-    `----
-  help: Consider removing this declaration.
-
-  ! eslint(no-unused-vars): Variable 'setSelectedId' is declared but never used. Unused variables should start with a '_'.
-    ,-[src/pages/HistoryPage.jsx:51:22]
- 50 |   // ?좏깮??gen (?몄쭛/?명럹?명똿)
- 51 |   const [selectedId, setSelectedId]     = useState(null)
-    :                      ^^^^^^|^^^^^^
-    :                            `-- 'setSelectedId' is declared here
- 52 |   const [inpaintTarget, setInpaintTarget] = useState(null)  // image_path
-    `----
-  help: Consider removing this declaration.
-
   ! react-hooks(exhaustive-deps): React hook useMemo depends on `generations`, which changes every render
-     ,-[src/pages/HistoryPage.jsx:120:7]
-  61 |   })
-  62 |   const generations = gensData?.generations || []
+     ,-[src/pages/HistoryPage.jsx:119:7]
+  60 |   })
+  61 |   const generations = gensData?.generations || []
      :         ^^^^^|^^^^^
      :              `-- `generations` is declared here
-  63 | 
-  64 |   const { data: upscaleModels } = useQuery({
-  65 |     queryKey: ['upscale-models'],
-  66 |     queryFn: () => sdApi.upscaleModels().then(r => r.data),
-  67 |   })
-  68 |   const modelList = upscaleModels?.models || []
-  69 | 
-  70 |   const [selectedUpscaler, setSelectedUpscaler] = useState('')
-  71 | 
-  72 |   // ?쇰뱶諛?bulk 議고쉶
-  73 |   const genIds = generations.map(g => g.id)
-  74 |   const { data: feedbackMap = {} } = useQuery({
-  75 |     queryKey: ['feedbacks', genIds],
-  76 |     queryFn: () => historyApi.feedbacks(genIds).then(r => r.data),
-  77 |     enabled: genIds.length > 0,
-  78 |   })
-  79 | 
-  80 |   const [mediaType, setMediaType] = useState('all')
-  81 |   // ?대씪?댁뼵???ъ씠???꾪꽣 (利됯컖 諛섏쓳)
-  82 |   const filtered = useMemo(() => {
-  83 |     let list = generations
-  84 | 
-  85 |     // 醫낅쪟 ?꾪꽣
-  86 |     if (mediaType !== 'all') {
-  87 |       list = list.filter(g => (g.media_type === 'video') === (mediaType === 'video'))
-  88 |     }
-  89 | 
-  90 |     // ?쒓렇 ?꾪꽣
-  91 |     list = list.filter(gen => {
-  92 |       const tagSet = new Set(gen.tags.map(t => t.tag))
-  93 |       if (excludedTags.some(t => tagSet.has(t))) return false
-  94 |       if (includedTags.length) {
-  95 |         if (includeMode === 'AND') return includedTags.every(t => tagSet.has(t))
-  96 |         else return includedTags.some(t => tagSet.has(t))
-  97 |       }
-  98 |       return true
-  99 |     })
- 100 | 
- 101 |     // ?⑥뒪 ?꾪꽣
- 102 |     if (passFilter !== '?꾩껜') {
- 103 |       const target = PASS_TYPE_MAP[passFilter]
- 104 |       list = list.filter(g => feedbackMap[g.id]?.pass_type === target)
- 105 |     }
- 106 | 
- 107 |     // ?먯닔 ?꾪꽣
- 108 |     if (scoreMode !== '?곸슜 ?덊븿') {
- 109 |       list = list.filter(g => {
- 110 |         const s = feedbackMap[g.id]?.score ?? null
- 111 |         if (scoreMode === '?쇰뱶諛??놁쓬') return s === null
- 112 |         if (scoreMode === '?댁긽') return s !== null && s >= scoreVal
- 113 |         if (scoreMode === '?댄븯') return s !== null && s <= scoreVal
- 114 |         if (scoreMode === '?숈씪') return s !== null && s === scoreVal
- 115 |         return true
- 116 |       })
- 117 |     }
- 118 | 
- 119 |     return list
- 120 |   }, [generations, feedbackMap, mediaType, excludedTags, includedTags, includeMode, passFilter, scoreMode, scoreVal])
+  62 | 
+  63 |   const { data: upscaleModels } = useQuery({
+  64 |     queryKey: ['upscale-models'],
+  65 |     queryFn: () => sdApi.upscaleModels().then(r => r.data),
+  66 |   })
+  67 |   const modelList = upscaleModels?.models || []
+  68 | 
+  69 |   const [selectedUpscaler, setSelectedUpscaler] = useState('')
+  70 | 
+  71 |   // 피드백 bulk 조회
+  72 |   const genIds = generations.map(g => g.id)
+  73 |   const { data: feedbackMap = {} } = useQuery({
+  74 |     queryKey: ['feedbacks', genIds],
+  75 |     queryFn: () => historyApi.feedbacks(genIds).then(r => r.data),
+  76 |     enabled: genIds.length > 0,
+  77 |   })
+  78 | 
+  79 |   const [mediaType, setMediaType] = useState('all')
+  80 |   // 클라이언트 사이드 필터 (즉각 반응)
+  81 |   const filtered = useMemo(() => {
+  82 |     let list = generations
+  83 | 
+  84 |     // 종류 필터
+  85 |     if (mediaType !== 'all') {
+  86 |       list = list.filter(g => (g.media_type === 'video') === (mediaType === 'video'))
+  87 |     }
+  88 | 
+  89 |     // 태그 필터
+  90 |     list = list.filter(gen => {
+  91 |       const tagSet = new Set(gen.tags.map(t => t.tag))
+  92 |       if (excludedTags.some(t => tagSet.has(t))) return false
+  93 |       if (includedTags.length) {
+  94 |         if (includeMode === 'AND') return includedTags.every(t => tagSet.has(t))
+  95 |         else return includedTags.some(t => tagSet.has(t))
+  96 |       }
+  97 |       return true
+  98 |     })
+  99 | 
+ 100 |     // 패스 필터
+ 101 |     if (passFilter !== '전체') {
+ 102 |       const target = PASS_TYPE_MAP[passFilter]
+ 103 |       list = list.filter(g => feedbackMap[g.id]?.pass_type === target)
+ 104 |     }
+ 105 | 
+ 106 |     // 점수 필터
+ 107 |     if (scoreMode !== '적용 안함') {
+ 108 |       list = list.filter(g => {
+ 109 |         const s = feedbackMap[g.id]?.score ?? null
+ 110 |         if (scoreMode === '피드백 없음') return s === null
+ 111 |         if (scoreMode === '이상') return s !== null && s >= scoreVal
+ 112 |         if (scoreMode === '이하') return s !== null && s <= scoreVal
+ 113 |         if (scoreMode === '동일') return s !== null && s === scoreVal
+ 114 |         return true
+ 115 |       })
+ 116 |     }
+ 117 | 
+ 118 |     return list
+ 119 |   }, [generations, feedbackMap, mediaType, excludedTags, includedTags, includeMode, passFilter, scoreMode, scoreVal])
      :       ^^^^^|^^^^^
      :            `-- it will always cause this hook to re-evaluate
- 121 | 
+ 120 | 
      `----
   help: Try memoizing this variable with `useRef` or `useCallback`.
 
   ! react-hooks(exhaustive-deps): React hook useMemo depends on `generations`, which changes every render
-    ,-[src/pages/HistoryPage.jsx:62:9]
- 61 |   })
- 62 |   const generations = gensData?.generations || []
+    ,-[src/pages/HistoryPage.jsx:61:9]
+ 60 |   })
+ 61 |   const generations = gensData?.generations || []
     :         ^^^^^|^^^^^
     :              `-- `generations` is declared here
- 63 | 
+ 62 | 
     `----
-     ,-[src/pages/HistoryPage.jsx:158:7]
- 157 |     return [...s].sort()
- 158 |   }, [generations])
+     ,-[src/pages/HistoryPage.jsx:157:7]
+ 156 |     return [...s].sort()
+ 157 |   }, [generations])
      :       ^^^^^|^^^^^
      :            `-- it will always cause this hook to re-evaluate
- 159 | 
+ 158 | 
      `----
   help: Try memoizing this variable with `useRef` or `useCallback`.
 
   ! eslint(no-unused-expressions): Expected expression to be used
-     ,-[src/pages/HistoryPage.jsx:519:17]
- 518 |                 const s = new Set(prev)
- 519 |                 s.has(tag) ? s.delete(tag) : (s.add(tag), disliked.delete(tag), passed.delete(tag))
+     ,-[src/pages/HistoryPage.jsx:518:17]
+ 517 |                 const s = new Set(prev)
+ 518 |                 s.has(tag) ? s.delete(tag) : (s.add(tag), disliked.delete(tag), passed.delete(tag))
      :                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 520 |                 return s
+ 519 |                 return s
      `----
   help: Consider using this expression or removing it
 
   ! eslint(no-unused-expressions): Expected expression to be used
-     ,-[src/pages/HistoryPage.jsx:524:17]
- 523 |                 const s = new Set(prev)
- 524 |                 s.has(tag) ? s.delete(tag) : (s.add(tag), liked.delete(tag), passed.delete(tag))
+     ,-[src/pages/HistoryPage.jsx:523:17]
+ 522 |                 const s = new Set(prev)
+ 523 |                 s.has(tag) ? s.delete(tag) : (s.add(tag), liked.delete(tag), passed.delete(tag))
      :                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 525 |                 return s
+ 524 |                 return s
      `----
   help: Consider using this expression or removing it
 
   ! eslint(no-unused-expressions): Expected expression to be used
-     ,-[src/pages/HistoryPage.jsx:529:17]
- 528 |                 const s = new Set(prev)
- 529 |                 s.has(tag) ? s.delete(tag) : (s.add(tag), liked.delete(tag), disliked.delete(tag))
+     ,-[src/pages/HistoryPage.jsx:528:17]
+ 527 |                 const s = new Set(prev)
+ 528 |                 s.has(tag) ? s.delete(tag) : (s.add(tag), liked.delete(tag), disliked.delete(tag))
      :                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 530 |                 return s
+ 529 |                 return s
      `----
   help: Consider using this expression or removing it
+
+  x eslint(no-undef): 'setSeed' is not defined.
+      ,-[src/pages/GeneratePage.jsx:1248:98]
+ 1247 |             <div><label>Frames</label><input type="number" value={length} onChange={e => setLength(+e.target.value)} /></div>
+ 1248 |             <div><label>Seed (-1=랜덤)</label><input type="number" value={seed} onChange={e => setSeed(+e.target.value)} /></div>
+      :                                                                                                ^^^^^^^
+ 1249 |             <div><label>High Steps</label><input type="number" value={highSteps} min={1} onChange={e => setHighSteps(+e.target.value)} /></div>
+      `----
+  help: Either define 'setSeed' or remove the reference to it. If 'setSeed' is a global variable, add it to the 'globals' configuration.
+
+  ! eslint(no-unused-vars): Function 'flattenTagsToMap' is declared but never used.
+    ,-[src/pages/GeneratePage.jsx:62:10]
+ 61 | 
+ 62 | function flattenTagsToMap(obj, map = {}) {
+    :          ^^^^^^^^|^^^^^^^
+    :                  `-- 'flattenTagsToMap' is declared here
+ 63 |   if (!obj || typeof obj !== 'object') return map
+    `----
+  help: Consider removing this declaration.
 
   ! eslint(no-unused-vars): Function 'buildFuse' is declared but never used.
     ,-[src/pages/GeneratePage.jsx:74:10]
@@ -269,39 +248,20 @@
     `----
   help: Consider removing this declaration.
 
-  ! eslint(no-unused-vars): Variable 'koMap' is declared but never used. Unused variables should start with a '_'.
-     ,-[src/pages/GeneratePage.jsx:220:9]
- 219 | 
- 220 |   const koMap = useMemo(() => {
-     :         ^^|^^
-     :           `-- 'koMap' is declared here
- 221 |     const map = {}
-     `----
-  help: Consider removing this declaration.
-
   ! eslint(no-unused-vars): Variable 'setSeed' is declared but never used. Unused variables should start with a '_'.
-      ,-[src/pages/GeneratePage.jsx:1274:16]
- 1273 |   const [denoise, setDenoise]     = useState(0.7)
- 1274 |   const [seed, setSeed]           = useState(-1)
+      ,-[src/pages/GeneratePage.jsx:1268:16]
+ 1267 |   const [denoise, setDenoise]     = useState(0.7)
+ 1268 |   const [seed, setSeed]           = useState(-1)
       :                ^^^|^^^
       :                   `-- 'setSeed' is declared here
- 1275 |   const [showMaskDraw, setShowMaskDraw] = useState(false)
-      `----
-  help: Consider removing this declaration.
-
-  ! eslint(no-unused-vars): Variable 'isDraggingTag' is declared but never used. Unused variables should start with a '_'.
-      ,-[src/pages/GeneratePage.jsx:1455:10]
- 1454 |   })
- 1455 |   const [isDraggingTag, setIsDraggingTag] = useState(false)
-      :          ^^^^^^|^^^^^^
-      :                `-- 'isDraggingTag' is declared here
- 1456 |   const [globalNavIndex, setGlobalNavIndex] = useState(-1)
+ 1269 |   const [showMaskDraw, setShowMaskDraw] = useState(false)
       `----
   help: Consider removing this declaration.
 
   ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'setCheckpoint', and 'checkpoint'
      ,-[src/pages/GeneratePage.jsx:200:4]
- 196 |   // ??λ맂 媛믪씠 ?녾굅??紐⑸줉?먯꽌 ?щ씪吏??뚯씪?대㈃ 湲곕낯媛믪쑝濡? 197 |   if (!checkpoint || !checkpoints.includes(checkpoint)) {
+ 196 |   // 저장된 값이 없거나 목록에서 사라진 파일이면 기본값으로
+ 197 |   if (!checkpoint || !checkpoints.includes(checkpoint)) {
      :        ^^^^^^^^^^
  198 |     setCheckpoint(checkpoints[1] ?? checkpoints[0])
      :     ^^^^^^^^^^^^^
@@ -321,7 +281,8 @@
  193 | 
  194 |   useEffect(() => {
  195 |   if (!checkpoints.length) return
- 196 |   // ??λ맂 媛믪씠 ?녾굅??紐⑸줉?먯꽌 ?щ씪吏??뚯씪?대㈃ 湲곕낯媛믪쑝濡? 197 |   if (!checkpoint || !checkpoints.includes(checkpoint)) {
+ 196 |   // 저장된 값이 없거나 목록에서 사라진 파일이면 기본값으로
+ 197 |   if (!checkpoint || !checkpoints.includes(checkpoint)) {
  198 |     setCheckpoint(checkpoints[1] ?? checkpoints[0])
  199 |   }
  200 | }, [checkpoints])
@@ -332,204 +293,204 @@
   help: Try memoizing this variable with `useRef` or `useCallback`.
 
   ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'checkpoints', and 'setCheckpoint'
-     ,-[src/pages/GeneratePage.jsx:246:6]
- 239 |       const base = quote.checkpoint.split(/[/\\]/).pop()
- 240 |       const match = checkpoints.find(c => c === quote.checkpoint) || checkpoints.find(c => c === base)
+     ,-[src/pages/GeneratePage.jsx:240:6]
+ 233 |       const base = quote.checkpoint.split(/[/\\]/).pop()
+ 234 |       const match = checkpoints.find(c => c === quote.checkpoint) || checkpoints.find(c => c === base)
      :                     ^^^^^^^^^^^
- 241 |       if (match) setCheckpoint(match)
+ 235 |       if (match) setCheckpoint(match)
      :                  ^^^^^^^^^^^^^
- 242 |       else alert(`泥댄겕?ъ씤?몃? 李얠쓣 ???놁쓬: ${base}`)
- 243 |     }
- 244 | 
- 245 |     if (quote.positive != null || quote.negative != null) setPendingQuote({ ...quote, target })
- 246 |   }, [quote])
+ 236 |       else alert(`체크포인트를 찾을 수 없음: ${base}`)
+ 237 |     }
+ 238 | 
+ 239 |     if (quote.positive != null || quote.negative != null) setPendingQuote({ ...quote, target })
+ 240 |   }, [quote])
      :      ^^^^^^^
- 247 |   
+ 241 |   
      `----
   help: Either include it or remove the dependency array.
 
   ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'queueItems'
-     ,-[src/pages/GeneratePage.jsx:298:6]
- 293 |     setQueueActive(
- 294 |       queueItems.some(i => ['waiting', 'running', 'cancelling'].includes(i.status)) ||
+     ,-[src/pages/GeneratePage.jsx:292:6]
+ 287 |     setQueueActive(
+ 288 |       queueItems.some(i => ['waiting', 'running', 'cancelling'].includes(i.status)) ||
      :       ^^^^^|^^^^
      :            `-- useEffect uses `queueItems` here
- 295 |       (queueData?.shutdown?.remaining ?? 0) > 0 ||
- 296 |       !!queueData?.shutdown?.extracting
- 297 |     )
- 298 |   }, [queueData])
+ 289 |       (queueData?.shutdown?.remaining ?? 0) > 0 ||
+ 290 |       !!queueData?.shutdown?.extracting
+ 291 |     )
+ 292 |   }, [queueData])
      :      ^^^^^^^^^^^
- 299 | 
+ 293 | 
      `----
   help: Either include it or remove the dependency array.
 
   ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'queueItems'
-     ,-[src/pages/GeneratePage.jsx:335:6]
- 325 |   useEffect(() => {
- 326 |     const done = queueItems.filter(i => i.status === 'done')
+     ,-[src/pages/GeneratePage.jsx:329:6]
+ 319 |   useEffect(() => {
+ 320 |     const done = queueItems.filter(i => i.status === 'done')
      :                  ^^^^^|^^^^
      :                       `-- useEffect uses `queueItems` here
- 327 |     if (seenDoneRef.current === null) {
- 328 |       seenDoneRef.current = new Set(done.map(i => i.id))   // 泥?濡쒕뱶 ??湲곗〈 ?꾨즺遺꾩? ?먮룞 ?쒖떆?섏? ?딆쓬
- 329 |       return
- 330 |     }
- 331 |     const fresh = done.filter(i => !seenDoneRef.current.has(i.id))
- 332 |     if (!fresh.length) return
- 333 |     fresh.forEach(i => seenDoneRef.current.add(i.id))
- 334 |     if (followRef.current) showItem(fresh[fresh.length - 1])
- 335 |   }, [queueData])
+ 321 |     if (seenDoneRef.current === null) {
+ 322 |       seenDoneRef.current = new Set(done.map(i => i.id))   // 첫 로드 때 기존 완료분은 자동 표시하지 않음
+ 323 |       return
+ 324 |     }
+ 325 |     const fresh = done.filter(i => !seenDoneRef.current.has(i.id))
+ 326 |     if (!fresh.length) return
+ 327 |     fresh.forEach(i => seenDoneRef.current.add(i.id))
+ 328 |     if (followRef.current) showItem(fresh[fresh.length - 1])
+ 329 |   }, [queueData])
      :      ^^^^^^^^^^^
- 336 | 
+ 330 | 
      `----
   help: Either include it or remove the dependency array.
 
   ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'onQuoteConsumed'
-      ,-[src/pages/GeneratePage.jsx:1149:6]
- 1135 |     if (pendingQuote.nonce != null && lastQuoteRef.current === pendingQuote.nonce) {
- 1136 |       onQuoteConsumed?.()
+      ,-[src/pages/GeneratePage.jsx:1143:6]
+ 1129 |     if (pendingQuote.nonce != null && lastQuoteRef.current === pendingQuote.nonce) {
+ 1130 |       onQuoteConsumed?.()
       :       ^^^^^^^|^^^^^^^
       :              `-- useEffect uses `onQuoteConsumed` here
- 1137 |       return
+ 1131 |       return
+ 1132 |     }
+ 1133 |     lastQuoteRef.current = pendingQuote.nonce ?? null
+ 1134 |     const append = !!pendingQuote.append
+ 1135 | 
+ 1136 |     if (pendingQuote.positive != null) {
+ 1137 |       setPrompt(prev => append ? appendText(prev, pendingQuote.positive) : pendingQuote.positive)
  1138 |     }
- 1139 |     lastQuoteRef.current = pendingQuote.nonce ?? null
- 1140 |     const append = !!pendingQuote.append
- 1141 | 
- 1142 |     if (pendingQuote.positive != null) {
- 1143 |       setPrompt(prev => append ? appendText(prev, pendingQuote.positive) : pendingQuote.positive)
- 1144 |     }
- 1145 |     if (pendingQuote.negative != null) {
- 1146 |       setNegative(prev => append ? appendText(prev, pendingQuote.negative) : pendingQuote.negative)
- 1147 |     }
- 1148 |     onQuoteConsumed?.()
- 1149 |   }, [pendingQuote])
+ 1139 |     if (pendingQuote.negative != null) {
+ 1140 |       setNegative(prev => append ? appendText(prev, pendingQuote.negative) : pendingQuote.negative)
+ 1141 |     }
+ 1142 |     onQuoteConsumed?.()
+ 1143 |   }, [pendingQuote])
       :      ^^^^^^^^^^^^^^
- 1150 | 
+ 1144 | 
       `----
   help: Either include it or remove the dependency array.
 
   ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'onQuoteConsumed'
-      ,-[src/pages/GeneratePage.jsx:1165:6]
- 1163 |     if (pendingQuote.negative != null) setNegative(pendingQuote.negative)
- 1164 |     onQuoteConsumed?.()
+      ,-[src/pages/GeneratePage.jsx:1159:6]
+ 1157 |     if (pendingQuote.negative != null) setNegative(pendingQuote.negative)
+ 1158 |     onQuoteConsumed?.()
       :     ^^^^^^^|^^^^^^^
       :            `-- useEffect uses `onQuoteConsumed` here
- 1165 |   }, [pendingQuote])
+ 1159 |   }, [pendingQuote])
       :      ^^^^^^^^^^^^^^
- 1166 | 
+ 1160 | 
       `----
   help: Either include it or remove the dependency array.
 
   ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'onQuoteConsumed'
-      ,-[src/pages/GeneratePage.jsx:1336:6]
- 1322 |     if (pendingQuote.nonce != null && lastQuoteRef.current === pendingQuote.nonce) {
- 1323 |       onQuoteConsumed?.()
+      ,-[src/pages/GeneratePage.jsx:1330:6]
+ 1316 |     if (pendingQuote.nonce != null && lastQuoteRef.current === pendingQuote.nonce) {
+ 1317 |       onQuoteConsumed?.()
       :       ^^^^^^^|^^^^^^^
       :              `-- useEffect uses `onQuoteConsumed` here
- 1324 |       return
+ 1318 |       return
+ 1319 |     }
+ 1320 |     lastQuoteRef.current = pendingQuote.nonce ?? null
+ 1321 |     const append = !!pendingQuote.append
+ 1322 | 
+ 1323 |     if (pendingQuote.positive != null) {
+ 1324 |       setPrompt(prev => append ? appendTags(prev, pendingQuote.positive) : pendingQuote.positive)
  1325 |     }
- 1326 |     lastQuoteRef.current = pendingQuote.nonce ?? null
- 1327 |     const append = !!pendingQuote.append
- 1328 | 
- 1329 |     if (pendingQuote.positive != null) {
- 1330 |       setPrompt(prev => append ? appendTags(prev, pendingQuote.positive) : pendingQuote.positive)
- 1331 |     }
- 1332 |     if (pendingQuote.negative != null) {
- 1333 |       setNegative(prev => append ? appendTags(prev, pendingQuote.negative) : pendingQuote.negative)
- 1334 |     }
- 1335 |     onQuoteConsumed?.()
- 1336 |   }, [pendingQuote])
+ 1326 |     if (pendingQuote.negative != null) {
+ 1327 |       setNegative(prev => append ? appendTags(prev, pendingQuote.negative) : pendingQuote.negative)
+ 1328 |     }
+ 1329 |     onQuoteConsumed?.()
+ 1330 |   }, [pendingQuote])
       :      ^^^^^^^^^^^^^^
- 1337 |   return (
+ 1331 |   return (
       `----
   help: Either include it or remove the dependency array.
 
   ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'negative'
-      ,-[src/pages/GeneratePage.jsx:1492:6]
- 1490 |   useEffect(() => {
- 1491 |     if (constants?.negative_base && !negative) setNegative(constants.negative_base)
+      ,-[src/pages/GeneratePage.jsx:1486:6]
+ 1484 |   useEffect(() => {
+ 1485 |     if (constants?.negative_base && !negative) setNegative(constants.negative_base)
       :                                      ^^^^|^^^
       :                                          `-- useEffect uses `negative` here
- 1492 |   }, [constants])
+ 1486 |   }, [constants])
       :      ^^^^^^^^^^^
- 1493 | 
+ 1487 | 
       `----
   help: Either include it or remove the dependency array.
 
-  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'allTagsFlat', 'promptOrder', 'dropSelections', and 'onQuoteConsumed'
-      ,-[src/pages/GeneratePage.jsx:1612:6]
- 1557 |     if (pendingQuote.nonce != null && lastQuoteRef.current === pendingQuote.nonce) {
- 1558 |       onQuoteConsumed?.()
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'promptOrder', 'dropSelections', 'allTagsFlat', and 'onQuoteConsumed'
+      ,-[src/pages/GeneratePage.jsx:1606:6]
+ 1551 |     if (pendingQuote.nonce != null && lastQuoteRef.current === pendingQuote.nonce) {
+ 1552 |       onQuoteConsumed?.()
       :       ^^^^^^^^^^^^^^^
- 1559 |       return
- 1560 |     }
- 1561 |     lastQuoteRef.current = pendingQuote.nonce ?? null
- 1562 |     const append = !!pendingQuote.append
- 1563 | 
- 1564 |     if (pendingQuote.positive != null) {
- 1565 |       const tokens = [...new Set(
- 1566 |         pendingQuote.positive.split(',').map(t => t.trim()).filter(Boolean)
- 1567 |       )]
- 1568 |       const selections = append ? { ...dropSelections } : {}
+ 1553 |       return
+ 1554 |     }
+ 1555 |     lastQuoteRef.current = pendingQuote.nonce ?? null
+ 1556 |     const append = !!pendingQuote.append
+ 1557 | 
+ 1558 |     if (pendingQuote.positive != null) {
+ 1559 |       const tokens = [...new Set(
+ 1560 |         pendingQuote.positive.split(',').map(t => t.trim()).filter(Boolean)
+ 1561 |       )]
+ 1562 |       const selections = append ? { ...dropSelections } : {}
       :                                        ^^^^^^^^^^^^^^
- 1569 |       const order = append ? [...promptOrder] : []
+ 1563 |       const order = append ? [...promptOrder] : []
       :                                  ^^^^^^^^^^^
- 1570 | 
- 1571 |       for (const token of tokens) {
- 1572 |         if (order.some(p => p.en === token)) continue
- 1573 |         const lower = token.toLowerCase()
- 1574 |         const underscored = lower.replace(/ /g, '_')
- 1575 |         const hit = allTagsFlat.find(t =>
+ 1564 | 
+ 1565 |       for (const token of tokens) {
+ 1566 |         if (order.some(p => p.en === token)) continue
+ 1567 |         const lower = token.toLowerCase()
+ 1568 |         const underscored = lower.replace(/ /g, '_')
+ 1569 |         const hit = allTagsFlat.find(t =>
       :                     ^^^^^^^^^^^
- 1576 |           t.en.toLowerCase() === underscored ||
- 1577 |           t.en.toLowerCase() === lower ||
- 1578 |           t.ko === token
- 1579 |         )
- 1580 | 
- 1581 |         if (hit) {
- 1582 |           const sub = (CATEGORY_CONFIG[hit.cat] || []).find(s => `${hit.cat}.${s.key}` === hit.subKey)
- 1583 |           const cur = selections[hit.subKey] || []
- 1584 |           if (cur.includes(hit.en)) continue
- 1585 |           if (sub?.multi || cur.length === 0) {
- 1586 |             selections[hit.subKey] = [...cur, hit.en]
- 1587 |             order.push({ subKey: hit.subKey, en: hit.en, isManual: false })
- 1588 |             continue
- 1589 |           }
- 1590 |         }
- 1591 |         // 蹂댁쑀 ?쒓렇媛 ?꾨땲嫄곕굹 ?⑥씪 ?좏깮 移몄씠 ?대? 李?寃쎌슦 ???섎룞 ?쒓렇濡?蹂댁〈
- 1592 |         if (!order.some(p => p.isManual && p.en === token)) {
- 1593 |           order.push({ subKey: null, en: token, isManual: true })
- 1594 |         }
- 1595 |       }
- 1596 | 
- 1597 |       if (!append) {
- 1598 |         setDropRandom({})
- 1599 |         setDropRandomFixed({})
- 1600 |       }
- 1601 |       setDropSelections(selections)
- 1602 |       setPromptOrder(order)
+ 1570 |           t.en.toLowerCase() === underscored ||
+ 1571 |           t.en.toLowerCase() === lower ||
+ 1572 |           t.ko === token
+ 1573 |         )
+ 1574 | 
+ 1575 |         if (hit) {
+ 1576 |           const sub = (CATEGORY_CONFIG[hit.cat] || []).find(s => `${hit.cat}.${s.key}` === hit.subKey)
+ 1577 |           const cur = selections[hit.subKey] || []
+ 1578 |           if (cur.includes(hit.en)) continue
+ 1579 |           if (sub?.multi || cur.length === 0) {
+ 1580 |             selections[hit.subKey] = [...cur, hit.en]
+ 1581 |             order.push({ subKey: hit.subKey, en: hit.en, isManual: false })
+ 1582 |             continue
+ 1583 |           }
+ 1584 |         }
+ 1585 |         // 보유 태그가 아니거나 단일 선택 칸이 이미 찬 경우 → 수동 태그로 보존
+ 1586 |         if (!order.some(p => p.isManual && p.en === token)) {
+ 1587 |           order.push({ subKey: null, en: token, isManual: true })
+ 1588 |         }
+ 1589 |       }
+ 1590 | 
+ 1591 |       if (!append) {
+ 1592 |         setDropRandom({})
+ 1593 |         setDropRandomFixed({})
+ 1594 |       }
+ 1595 |       setDropSelections(selections)
+ 1596 |       setPromptOrder(order)
+ 1597 |     }
+ 1598 | 
+ 1599 |     if (pendingQuote.negative != null) {
+ 1600 |       setNegative(prev => append
+ 1601 |         ? appendTags(prev, pendingQuote.negative)
+ 1602 |         : dedupeTags(pendingQuote.negative))
  1603 |     }
  1604 | 
- 1605 |     if (pendingQuote.negative != null) {
- 1606 |       setNegative(prev => append
- 1607 |         ? appendTags(prev, pendingQuote.negative)
- 1608 |         : dedupeTags(pendingQuote.negative))
- 1609 |     }
- 1610 | 
- 1611 |     onQuoteConsumed?.()
- 1612 |   }, [pendingQuote])
+ 1605 |     onQuoteConsumed?.()
+ 1606 |   }, [pendingQuote])
       :      ^^^^^^^^^^^^^^
- 1613 |   
+ 1607 |   
       `----
   help: Either include it or remove the dependency array.
 
   ! eslint(no-unused-expressions): Expected expression to be used
-      ,-[src/pages/GeneratePage.jsx:1617:7]
- 1616 |       const s = new Set(prev)
- 1617 |       s.has(subKey) ? s.delete(subKey) : s.add(subKey)
+      ,-[src/pages/GeneratePage.jsx:1611:7]
+ 1610 |       const s = new Set(prev)
+ 1611 |       s.has(subKey) ? s.delete(subKey) : s.add(subKey)
       :       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 1618 |       return s
+ 1612 |       return s
       `----
   help: Consider using this expression or removing it
 
-Found 34 warnings and 0 errors.
-Finished in 665ms on 20 files with 93 rules using 12 threads.
+Found 29 warnings and 1 error.
+Finished in 21ms on 20 files with 93 rules using 12 threads.
