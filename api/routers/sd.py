@@ -9,10 +9,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config.PATH import CHECKPOINT_DIR, WORKFLOW_PATH, COMFY_INPUT
 from config.constants import NEGATIVE_BASE, MODEL_RESOLUTION
+# 입력 범위 (UI 슬라이더와 동일)
+DENOISE_MIN, DENOISE_MAX = 0.1, 1.0
+LORA_STRENGTH_MIN, LORA_STRENGTH_MAX = 0.0, 1.0
+CFG_MIN, CFG_MAX = 1.0, 10.0
+I2I_DENOISE_DEFAULT = 0.7
+
 from core.image.generate import run_comfy, run_upscale, run_i2i, run_i2i_mask
 from core.image.preference import (
     save_generation_start, get_generation_by_prompt_id, update_upscaled_image,
@@ -83,7 +89,7 @@ class GenerateRequest(BaseModel):
     checkpoint: str
     seed: int = -1
     lora_name: str = ""
-    lora_strength: float = 0.8
+    lora_strength: float = Field(0.8, ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)
 
 class UpscaleRequest(BaseModel):
     gen_id: int
@@ -92,16 +98,20 @@ class UpscaleRequest(BaseModel):
     checkpoint: str
     prompt: str = ""
     negative: str = ""
+    denoise: float = Field(I2I_DENOISE_DEFAULT, ge=DENOISE_MIN, le=DENOISE_MAX)
+    seed: int = -1
+    lora_name: str = ""
+    lora_strength: float = Field(0.8, ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)
 
 class I2IRequest(BaseModel):
     image_path: str
     checkpoint: str
     prompt: str = ""
     negative: str = ""
-    denoise: float = 0.7
+    denoise: float = Field(I2I_DENOISE_DEFAULT, ge=DENOISE_MIN, le=DENOISE_MAX)
     seed: int = -1
     lora_name: str = ""
-    lora_strength: float = 0.8
+    lora_strength: float = Field(0.8, ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)
 
 # ── 엔드포인트 ────────────────────────────────────────────
 
@@ -174,9 +184,6 @@ def _t2i_events(req: GenerateRequest):
         workflow["3"]["inputs"]["sampler_name"] = SAMPLER_MAP.get(cfg["sampler_name"], "euler_ancestral")
     if "scheduler" in cfg:
         workflow["3"]["inputs"]["scheduler"] = SCHEDULER_MAP.get(cfg["scheduler"], "normal")
-    if req.lora_name:
-        from core.image.generate import apply_lora_patch
-        workflow = apply_lora_patch(workflow, req.lora_name, req.lora_strength, positive_node_id="6")
 
     core_prompt = req.prompt.strip()
 
@@ -188,13 +195,12 @@ def _t2i_events(req: GenerateRequest):
         user_prompt = core_prompt
     workflow["6"]["inputs"]["text"] = user_prompt
 
+    if req.lora_name:
+            from core.image.generate import apply_lora_patch
+            workflow = apply_lora_patch(workflow, req.lora_name, req.lora_strength, positive_node_id="6")
+
     # 네거티브
-    neg_input = req.negative.strip()
-    if NEGATIVE_BASE in neg_input:
-        negative = neg_input
-    else:
-        negative = ", ".join(p for p in [neg_input, NEGATIVE_BASE] if p)
-    negative = _dedupe_tags(negative)
+    negative = _dedupe_tags(req.negative.strip())
     workflow["7"]["inputs"]["text"] = negative
 
     # gen_id 선발급
@@ -331,10 +337,10 @@ async def i2i_mask(
     checkpoint:  Annotated[str,   Form()] = "",
     prompt:      Annotated[str,   Form()] = "",
     negative:    Annotated[str,   Form()] = "",
-    denoise:     Annotated[float, Form()] = 0.5,
+    denoise:     Annotated[float, Form(ge=DENOISE_MIN, le=DENOISE_MAX)] = I2I_DENOISE_DEFAULT,
     seed:        Annotated[int,   Form()] = -1,
     lora_name:     Annotated[str,   Form()] = "",
-    lora_strength: Annotated[float, Form()] = 0.8,
+    lora_strength: Annotated[float, Form(ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)] = 0.8,
     mask_file:   UploadFile = File(None),
 ):
     # 마스크 blob을 임시 파일로 저장
@@ -385,7 +391,7 @@ class I2VRequest(BaseModel):
     length:     int   = 81
     high_steps: int   = 2
     low_steps:  int   = 3
-    cfg:        float = 1.0
+    cfg:        float = Field(1.0, ge=CFG_MIN, le=CFG_MAX)
     frame_rate: int   = 10
 
 
@@ -576,10 +582,10 @@ async def queue_i2i(
     checkpoint:    Annotated[str,   Form()] = "",
     prompt:        Annotated[str,   Form()] = "",
     negative:      Annotated[str,   Form()] = "",
-    denoise:       Annotated[float, Form()] = 0.7,
+    denoise:       Annotated[float, Form(ge=DENOISE_MIN, le=DENOISE_MAX)] = I2I_DENOISE_DEFAULT,
     seed:          Annotated[int,   Form()] = -1,
     lora_name:     Annotated[str,   Form()] = "",
-    lora_strength: Annotated[float, Form()] = 0.8,
+    lora_strength: Annotated[float, Form(ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)] = 0.8,
     mask_file:     UploadFile = File(None),
 ):
     mask_path = None

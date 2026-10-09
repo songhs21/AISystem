@@ -530,9 +530,9 @@ def apply_lora_patch(workflow: dict, lora_name: str, strength: float = 0.8, posi
         with open(LORA_TRIGGERS, encoding="utf-8") as f:
             triggers = _json.load(f)
         trigger = triggers.get(lora_name, "")
-        if trigger and "6" in workflow:
-            existing = workflow["6"]["inputs"].get("text", "")
-            workflow["6"]["inputs"]["text"] = f"{trigger}, {existing}" if existing else trigger
+        if trigger and positive_node_id in workflow:
+            existing = workflow[positive_node_id]["inputs"].get("text", "")
+            workflow[positive_node_id]["inputs"]["text"] = f"{trigger}, {existing}" if existing else trigger
     except Exception:
         pass
 

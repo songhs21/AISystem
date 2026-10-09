@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./config/notify.json)",
+      "Read(./.env*)",
+      "Read(./**/*.db)",
+      "Read(./node_modules/**)",
+      "Read(./frontend/node_modules/**)",
+      "Read(./01-test/**)",
+      "Read(./assets/models/**)",
+      "Read(./data/**)"
+    ]
+  }
+}

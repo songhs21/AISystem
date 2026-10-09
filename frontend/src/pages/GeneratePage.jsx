@@ -25,12 +25,12 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { CATEGORY_CONFIG, CATEGORY_ORDER } from '../constants/tagConfig'
 import { dedupeTags, appendTags, appendText } from '../utils/tags'
 import QueueStrip, { itemMeta } from '../components/QueueStrip'
 import { usePersistentState } from '../hooks/usePersistentState'
 import { useDragResize } from '../hooks/useDragResize'
 import ResizeHandle from '../components/ResizeHandle'
+import { CATEGORY_ORDER, CATEGORY_CONFIG } from '../constants/tagConfig'
 
 // 오른쪽 태그 패널 폭 (뷰포트 밀림 / 패널 / 토글 버튼 위치에 공통 사용)
 const DNA_TAB_H = 30                   // 하단 DNA 토글 탭 높이
@@ -185,19 +185,19 @@ export default function GeneratePage({ quote }) {
   const [falseTags, setFalseTags] = useState(new Set())
   const [score, setScore] = useState(5)
 
-  const { data: cpData } = useQuery({
+  const { data: cpData, isError: cpError, isFetching: cpFetching, refetch: refetchCp } = useQuery({
     queryKey: ['checkpoints'],
     queryFn: () => sdApi.checkpoints().then(r => r.data),
   })
   const checkpoints = cpData?.checkpoints || []
 
   useEffect(() => {
-  if (!checkpoints.length) return
-  // 저장된 값이 없거나 목록에서 사라진 파일이면 기본값으로
-  if (!checkpoint || !checkpoints.includes(checkpoint)) {
-    setCheckpoint(checkpoints[1] ?? checkpoints[0])
-  }
-}, [checkpoints])
+    if (!checkpoints.length) return
+    // 저장된 값이 없거나 목록에서 사라진 파일이면 첫 번째 모델로
+    if (!checkpoint || !checkpoints.includes(checkpoint)) {
+      setCheckpoint(checkpoints[0])
+    }
+  }, [checkpoints])
 
   const { data: tagFileData = {} } = useQuery({
     queryKey: ['tag-file-data'],
@@ -590,6 +590,14 @@ function toggleFeedbackTag(tag, kind) {
               <select value={checkpoint} onChange={e => setCheckpoint(e.target.value)}>
                 {checkpoints.map(c => <option key={c}>{c}</option>)}
               </select>
+              <ListStatus
+                error={cpError}
+                empty={!cpError && !cpFetching && checkpoints.length === 0}
+                fetching={cpFetching}
+                onRetry={refetchCp}
+                errorText="체크포인트 목록을 불러오지 못했습니다."
+                emptyText="체크포인트가 없습니다. 설치 폴더/models/checkpoints 에 모델 파일을 옮긴 뒤 다시 시도하세요."
+              />
             </div>
           )}
 
@@ -1121,7 +1129,7 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
   const [loraName, setLoraName]         = useState(draft.loraName ?? '')
   const [loraStrength, setLoraStrength] = useState(draft.loraStrength ?? 0.8)
 
-  const { data: loraData } = useQuery({
+  const { data: loraData, isError: loraError, isFetching: loraFetching, refetch: refetchLora } = useQuery({
     queryKey: ['loras'],
     queryFn: () => sdApi.loras().then(r => r.data),
   })
@@ -1236,6 +1244,14 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
                 <option value="">LoRA 없음</option>
                 {loras.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
+              <ListStatus
+                error={loraError}
+                empty={!loraError && !loraFetching && loras.length === 0}
+                fetching={loraFetching}
+                onRetry={refetchLora}
+                errorText="LoRA 목록을 불러오지 못했습니다."
+                emptyText="LoRA 파일이 없습니다. 설치 폴더/models/LoRAS 에 모델 파일을 옮긴 뒤 다시 시도하세요."
+              />
               {loraName && (
                 <>
                   <label>Strength: {loraStrength}</label>
@@ -1276,7 +1292,7 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bin
   const [loraName, setLoraName]         = useState('')
   const [loraStrength, setLoraStrength] = useState(0.8)
 
-  const { data: loraData } = useQuery({
+  const { data: loraData, isError: loraError, isFetching: loraFetching, refetch: refetchLora } = useQuery({
     queryKey: ['loras'],
     queryFn: () => sdApi.loras().then(r => r.data),
   })
@@ -1362,6 +1378,14 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bin
             <option value="">LoRA 없음</option>
             {loras.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
+          <ListStatus
+                error={loraError}
+                empty={!loraError && !loraFetching && loras.length === 0}
+                fetching={loraFetching}
+                onRetry={refetchLora}
+                errorText="LoRA 목록을 불러오지 못했습니다."
+                emptyText="설치 폴더/models/LoRAS 에 모델 파일을 옮긴 뒤 다시 시도하세요."
+              />
           {loraName && (
             <>
               <label>Strength: {loraStrength}</label>
@@ -1476,20 +1500,12 @@ function T2iModePanel({
     activationConstraint: { distance: 5 }
   }))
 
-  const { data: loraData } = useQuery({
+  const { data: loraData, isError: loraError, isFetching: loraFetching, refetch: refetchLora } = useQuery({
     queryKey: ['loras'],
     queryFn: () => sdApi.loras().then(r => r.data),
   })
   const loras = loraData?.loras || []
 
-  // ── 네거티브 초기값 ──
-  const { data: constants } = useQuery({
-    queryKey: ['constants'],
-    queryFn: () => client.get('/api/system/constants').then(r => r.data),
-  })
-  useEffect(() => {
-    if (constants?.negative_base && !negative) setNegative(constants.negative_base)
-  }, [constants])
 
   // 프롬프트 dnd useEffect
   useEffect(() => {
@@ -1724,10 +1740,10 @@ function T2iModePanel({
                   if (globalNavIndex >= 0 && globalResults[globalNavIndex]) {
                     const t = globalResults[globalNavIndex]
                     const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
-                    const isSelected = (dropSelections[t.subKey] || []).includes(t.en)
+                    // 이미 선택된 태그는 무시 (해제하지 않음, 입력·목록 유지)
+                    if ((dropSelections[t.subKey] || []).includes(t.en)) return
                     setDropSelections(prev => {
                       const cur = prev[t.subKey] || []
-                      if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
                       if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
                       return { ...prev, [t.subKey]: [...cur, t.en] }
                     })
@@ -1768,6 +1784,8 @@ function T2iModePanel({
                           ...newManual.map(en => ({ subKey: null, en, isManual: true }))
                         ])
                       }
+                    } else {
+                      return
                     }
                   setGlobalSearch('')
                   setGlobalSearchOpen(false)
@@ -1790,11 +1808,12 @@ function T2iModePanel({
                   const isNavActive = i === globalNavIndex
                   return (
                     <div key={`${t.subKey}-${t.en}-${i}`}
-                      onMouseDown={() => {
+                      onMouseDown={e => {
+                        // 이미 선택된 태그는 무시 (해제하지 않음). preventDefault로 입력창 포커스 유지 → 목록도 유지
+                        if (isSelected) { e.preventDefault(); return }
                         const sub = (CATEGORY_CONFIG[t.cat] || []).find(s => `${t.cat}.${s.key}` === t.subKey)
                         setDropSelections(prev => {
                           const cur = prev[t.subKey] || []
-                          if (isSelected) return { ...prev, [t.subKey]: cur.filter(e => e !== t.en) }
                           if (!sub?.multi) return { ...prev, [t.subKey]: [t.en] }
                           return { ...prev, [t.subKey]: [...cur, t.en] }
                         })
@@ -1923,6 +1942,14 @@ function T2iModePanel({
                 <option value="">LoRA 없음</option>
                 {loras.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
+              <ListStatus
+                    error={loraError}
+                    empty={!loraError && !loraFetching && loras.length === 0}
+                    fetching={loraFetching}
+                    onRetry={refetchLora}
+                    errorText="LoRA 목록을 불러오지 못했습니다."
+                    emptyText="설치 폴더/models/LoRAS 에 모델 파일을 옮긴 뒤 다시 시도하세요."
+                  />
               {loraName && (
                 <>
                   <label>Strength: {loraStrength}</label>
@@ -2108,34 +2135,37 @@ function T2iModePanel({
 
                         {isOpen && !isRandom && (
                           <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {topTags.length > 0 && (
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
-                                <span style={{ fontSize: 13, marginRight: 2 }}>
-                                  <span style={{ color: 'var(--gold-chip)' }}>★</span> 자주 사용하는 태그
+                              <span style={{ fontSize: 13, marginRight: 2 }}>
+                                <span style={{ color: 'var(--gold-chip)' }}>★</span> 자주 사용하는 태그
+                              </span>
+                              {topTags.length === 0 && (
+                                <span style={{ fontSize: 10, opacity: 0.7 }}>
+                                  아직 피드백이 부족합니다. 피드백이 쌓이면 자주 사용하는 태그가 여기에 표시됩니다.
                                 </span>
-                                {topTags.map(t => {
-                                  const isSelected = selected.includes(t.en)
-                                  return (
-                                    <button key={t.en} className="btn btn-ghost"
-                                      style={{
-                                        fontSize: 10, padding: '1px 6px',
-                                        borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
-                                        color: isSelected ? 'var(--accent)' : 'var(--text)',
-                                      }}
-                                      onClick={() => {
-                                        setDropSelections(prev => {
-                                          const cur = prev[subKey] || []
-                                          if (isSelected) return { ...prev, [subKey]: cur.filter(e => e !== t.en) }
-                                          if (!sub.multi) return { ...prev, [subKey]: [t.en] }
-                                          return { ...prev, [subKey]: [...cur, t.en] }
-                                        })
-                                      }}>
-                                      {t.ko || t.en}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            )}
+                              )}
+                              {topTags.map(t => {
+                                const isSelected = selected.includes(t.en)
+                                return (
+                                  <button key={t.en} className="btn btn-ghost"
+                                    style={{
+                                      fontSize: 10, padding: '1px 6px',
+                                      borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+                                      color: isSelected ? 'var(--accent)' : 'var(--text)',
+                                    }}
+                                    onClick={() => {
+                                      setDropSelections(prev => {
+                                        const cur = prev[subKey] || []
+                                        if (isSelected) return { ...prev, [subKey]: cur.filter(e => e !== t.en) }
+                                        if (!sub.multi) return { ...prev, [subKey]: [t.en] }
+                                        return { ...prev, [subKey]: [...cur, t.en] }
+                                      })
+                                    }}>
+                                    {t.ko || t.en}
+                                  </button>
+                                )
+                              })}
+                            </div>
 
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, maxHeight: 120, overflowY: 'auto', padding: '2px 0' }}>
                               {list.map(t => {
@@ -2205,6 +2235,28 @@ function ClearableTextarea({ value, onChange, style, ...rest }) {
           }}
         >×</button>
       )}
+    </div>
+  )
+}
+
+function ListStatus({ error, empty, fetching, onRetry, errorText, emptyText }) {
+  // 다시 요청하는 동안 error/empty 상태가 초기화되므로, 직전에 보이던 안내 종류를 기억해 둔다
+  const [last, setLast] = useState(null) // 'error' | 'empty' | null
+  useEffect(() => {
+    if (error) setLast('error')
+    else if (empty) setLast('empty')
+    else if (!fetching) setLast(null)
+  }, [error, empty, fetching])
+
+  const kind = error ? 'error' : empty ? 'empty' : (fetching ? last : null)
+  if (!kind) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, opacity: 0.8, marginTop: 4 }}>
+      <span>{kind === 'error' ? errorText : emptyText}</span>
+      <button type="button" onClick={onRetry} disabled={fetching}
+        style={{ fontSize: 11, padding: '2px 8px', flexShrink: 0 }}>
+        {fetching ? '확인 중…' : '다시 시도'}
+      </button>
     </div>
   )
 }

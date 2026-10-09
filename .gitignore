@@ -17,6 +17,8 @@ data/
 *.log
 data/logs/
 worker.log
+*.db
+*.sqlite3
 
 # 모델
 assets/models/
@@ -29,6 +31,7 @@ assets/workflow/custom_workflow_api.json
 
 # 문서
 docx/
+change_log.md
 
 # 개인/로컬 전용
 user_data/
@@ -36,15 +39,26 @@ tools/
 scripts/
 config/notify.json
 
+# ruff
+.ruff_cache/
+
+# test.py
+.pytest_cache/
+test-results/
+playwright-report/
+
 # 기타
 mask_debug.png
 slashTag.csv
 AISystem_filetree.txt
 tree.txt
-package-lock.json
-package.json
 frontend/public
 01-test
 test_mask_backup.py
 test_v2v.py
 yolov8m.pt
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.onnx

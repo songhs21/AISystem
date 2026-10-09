@@ -1,0 +1,7 @@
+[tool.ruff]
+extend-exclude = ["01-test", "frontend", "assets", "data"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["smoke: Playwright 스모크 (프론트/백엔드 기동 필요)"]

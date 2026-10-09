@@ -1052,3 +1052,62 @@ unregistered 카테고리 번역/분류는 여전히 수동. 단 JSON 구조 편
 - 이유: 작업 현황과 실행 순서를 대기열에서 시각적으로 확인할 수 있어야 하고, 인페인팅 등을 우선 처리하고 싶을 때 드래그로 순서를 바꿀 수 있어야 함. 
 - 상태: 계획(미구현)
 
+### 75. 로그 일원화
+- 변경:
+  - 백엔드 로그를 `data/logs/app.log`(전체)와 `error.log`(WARNING 이상) 두 파일로 통일. 하루 단위 회전, 14일 보관. 한 줄에 시각·레벨·출처(`app`, `queue`, `comfy`, `sd`, `mem`, `llm`, `system`, `client`)를 기록
+  - 서버 시작 시 로그 설정 한 곳에서 초기화(`log_setup.py`), 시작 로그에 버전 기록(`config/version.py`, FastAPI `version`)
+  - 서버 접근 로그에서 큐·상태·VRAM 폴링, 이미지·영상 서빙, `OPTIONS` 같은 정상 응답은 제외
+  - 큐·ComfyUI·메모리 워커·유휴 감시·I2V·인페인팅·V2V의 `print`를 로거로 교체. 실패 지점(`_run_item`, 스트림 엔드포인트, `/prompt` 거부, ComfyUI `execution_error`, 워커 예외, 스레드 예외)에서 traceback 기록
+  - 생성 프롬프트는 `[길이]앞 200자`만 기록하고 DEBUG 레벨(환경변수 `AISYSTEM_LOG_LEVEL`)에서만 전문 기록. LLM 대화 본문은 기록하지 않고 세션·모델·토큰 수 같은 메타만 기록
+  - 기존 `llm_debug.log`를 `app.log`의 `llm` 출처로 통합
+- 문제/배경: `print`가 파일 없이 콘솔로만 나갔고 LLM만 별도 파일을 썼음. `main.py`의 `logging.info`는 출력 설정이 없어 아무데도 찍히지 않았음. 스트림 엔드포인트가 예외를 `str(e)`만 `error` 이벤트로 보내 traceback이 사라졌음
+- 결정: 크기 기준 회전 대신 일 단위 회전. 개발/릴리즈 빌드 분리 없이 로그 레벨 환경변수로 전환
+- 이유: 테스트로 추측하기보다 로그를 남기고 그 로그를 분석해 원인을 파악·수정하는 쪽이 효율적이라는 조언(지인)에 따라 진행. 크기 기준 5MB 회전만으로는 언제 어느 기능에서 버그가 터졌는지 갈피를 잡기 어렵다는 지적이 있었음
+- 대안: 크기 기준 5MB × 5 회전, 폴링 포함 접근 로그 전체 기록, 프롬프트 전문 상시 기록, 개발/릴리즈 빌드 분리
+- 변경 파일: log_setup.py(신규), version.py(신규), PATH.py, main.py, gen_queue.py, comfy_idle.py, memory_worker.py, comfy_manager.py, generate.py, i2v_generate.py, sd.py, inpaint.py, llm.py, llm_memory.py, v2v_inpainting.py
+
+### 76. 오류 사건(incident) 파일
+- 변경: ERROR 이상이 발생하면 직전 로그 50건과 이후 10초의 로그를 하나의 사건 파일(`data/logs/incidents/날짜_시각_출처.log`)로 자동 저장. 파일 맨 위에 시각·출처·레벨·메시지·버전 요약. 같은 사건에서 10초 안에 이어지는 오류는 같은 파일에 이어 붙임. 사건 파일은 일 단위 회전과 별개로 최신 50개 보관
+- 문제/배경: 전체 로그만으로는 오류 주변 맥락을 골라 보기 어렵고, 큐 워커·유휴 감시·메모리 워커·요청 처리가 동시에 돌아 로그 줄이 섞임
+- 결정(사용자 방안): 오류 전후 로그를 따로 추출해 관리
+- 이유: 언제 어느 기능에서 버그가 터졌는지 갈피를 잡기 위해, 에러 발생 줄 전후의 로그를 따로 뽑아 보고 싶었음
+- 변경 파일: log_setup.py
+
+### 77. 프론트 오류 전송과 로그 조회
+- 변경:
+  - 전역 오류, 처리되지 않은 Promise 거부, React 렌더링 오류(`ErrorBoundary`, 탭별), `fetch`·axios API 실패를 `POST /api/system/client-log`로 전송해 같은 로그 파일에 `client` 출처로 기록. 같은 메시지는 5초 내 중복 제거, 60초에 30건 상한
+  - 직전 클릭(버튼·링크 이름만, 입력 내용은 제외)과 API 호출(쿼리스트링 제외) 20건을 재현 단서(breadcrumbs)로 함께 전송
+  - 프론트 디버그 로그는 개발 서버에서만 출력(`dlog`). 임시 `[quote]` 로그를 이 방식으로 대체
+  - 조회: `GET /api/system/logs/tail`(app/error 선택), `GET /api/system/logs/incidents`, `GET /api/system/logs/incidents/{name}`
+- 문제/배경: 프론트 오류는 서버 로그에 남지 않아 서버 로그와 함께 분석할 수 없었음
+- 결정: 프론트 오류 전송을 포함하고, 로그 조회 엔드포인트를 추가
+- 이유: (미기재)
+- 변경 파일: log_setup.py(신규), version.py(신규), PATH.py, main.py, gen_queue.py, comfy_idle.py, memory_worker.py, comfy_manager.py, generate.py, i2v_generate.py, sd.py, inpaint.py, llm.py, llm_memory.py, v2v_inpainting.py, watcher.py, notify.py
+
+### 78. 정적 검사 도입과 백엔드 정리
+- 변경:
+  - 프로젝트 루트에 `ruff.toml` 추가: 구문 오류(E9), 미정의 이름·미사용/중복 import·미사용 변수(F), bare except(E722), 로거 오용(LOG)만 검사
+  - `frontend/.oxlintrc.json`에 브라우저 전역(`env`)과 `no-undef: error` 추가, lint 스크립트를 `oxlint src`로 변경(`electron/` 제외)
+  - ruff 자동 수정으로 미사용 import(F401), 중복 import(F811), 미사용 변수(F841) 정리. 로그 일원화 때 `except Exception as e:`에 남은 `as e`도 함께 정리
+  - bare except 7곳을 `OSError` / `requests.RequestException` / `Exception`으로 구체화
+  - `watcher.py`, `notify.py`가 루트 로거를 직접 호출해 로그에 `[root]`로 찍히던 것을 이름 있는 로거로 교체. `notify.py`는 로거 정의가 빠져 있어(F821) 알림 전송 실패 시 `NameError`가 날 수 있었는데 정의를 추가
+- 문제/배경: oxlint 기본 설정은 `no-undef`가 꺼져 있어 `toTagLine is not defined` 같은 미정의 변수를 사전에 잡지 못했음(샌드박스에서 기본 설정 0건, 켜면 검출됨을 확인). `no-undef`를 켜자 `electron/main.cjs`의 Node 전역(`require` 등)이 오탐으로 잡혔음. 기존 ruff는 프로젝트에 설정 파일이 없는데도 많은 규칙군이 켜져 171건이 나와 노이즈가 컸음(미정의 이름·구문 오류는 0건)
+- 결정: 확인할 규칙을 핵심으로 좁힌 최소 설정. 프론트 lint는 `electron/`을 제외
+- 이유: (미기재)
+- 대안: ruff 기존 규칙(171건) 전체 유지, `overrides`로 `electron`에 Node 환경 지정, 파일 첫 줄 `/* global ... */` 주석(시험 결과 동작하지 않음)
+- 후속(보류): 프론트 경고 34건 정리(미사용 변수 15, `no-unused-expressions` 4, `exhaustive-deps` 의도된 5곳 억제), `exhaustive-deps` 나머지 9건과 상태 Set 직접 수정은 리팩토링 단계에서 검토
+- 변경 파일: ruff.toml(신규), .oxlintrc.json, package.json, notify.py, watcher.py, inpaint.py, sd.py, system.py, comfy_manager.py, ollama_manager.py 외 ruff 자동 수정이 적용된 api·core 파일
+
+### 79. 프로세스 종료 함수 예외 처리 구문 오류 수정
+- 변경: `kill_ollama`, `kill_comfy`의 `except Exception (psutil.NoSuchProcess, psutil.AccessDenied):`를 `except (psutil.NoSuchProcess, psutil.AccessDenied):`로 수정
+- 문제/배경: 이 구문은 `Exception(...)`으로 예외 객체를 만든 뒤 그것을 잡으라는 뜻이라, 예외가 실제로 발생할 때 `TypeError: catching classes that do not inherit from BaseException is not allowed`가 났음. 서버 시작 때는 오류가 없고 ruff(E9, F, E722, LOG, B030)로도 검출되지 않았음(샌드박스에서 확인). 접근 거부·이미 종료된 프로세스를 만나면 Ollama 종료 요청이 실패하고, ComfyUI는 8188 포트 점유 프로세스 종료 루프가 중단될 수 있었음
+- 결정: 예외 튜플로 수정. `except 이름 (` 패턴을 검색해 같은 오류가 더 없음을 확인
+- 이유: (미기재)
+- 변경 파일: comfy_manager.py, ollama_manager.py
+
+### 80. 자동 테스트와 Discord 결과 리포트 (Plan)
+- 변경(계획): pytest(백엔드 순수 로직·API)와 Playwright(UI, API는 가짜 응답)를 도입하고, 커밋·푸시를 기준으로 테스트를 실행하고 정기 실행도 등록해 결과를 Discord로 리포트
+- 문제/배경: 수동 검증 목록이 계속 쌓이고 있고, `toTagLine` import 누락, `pendingQuote` 전달 누락, 종료 함수 예외 구문 오류처럼 실행해 봐야 드러나는 문제가 이번 마일스톤에서 반복됨. 리팩토링 전에 안전망이 필요함
+- 결정(사용자 방안): 리팩토링 전에 자동화를 먼저 구축하고, 커밋이나 푸시를 기준으로 Playwright를 돌려 결과 리포트를 Discord로 출력
+- 이유: (미기재)
+- 상태: 계획(다음 세션)
