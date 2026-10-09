@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from config.PATH import CHECKPOINT_DIR, WORKFLOW_PATH, COMFY_INPUT
-from config.constants import NEGATIVE_BASE, MODEL_RESOLUTION
+from config.constants import MODEL_RESOLUTION
 # 입력 범위 (UI 슬라이더와 동일)
 DENOISE_MIN, DENOISE_MAX = 0.1, 1.0
 LORA_STRENGTH_MIN, LORA_STRENGTH_MAX = 0.0, 1.0
@@ -287,7 +287,7 @@ def upscale(req: UpscaleRequest):
                 req.upscale_model,
                 checkpoint=req.checkpoint,
                 prompt=req.prompt,
-                negative=req.negative or NEGATIVE_BASE
+                negative=req.negative
             ):
                 if event["type"] == "progress":
                     yield f"event: progress\ndata: {json.dumps({'value': event['value'], 'text': event['text']})}\n\n"
