@@ -208,7 +208,12 @@ def test_ts17_duplicate_ignored_rest_registered(page: Page):
     assert tag_names(page) == ["[종족] 엘프(elf)", "[상태] 미소(smile)"]
     expect(search(page)).to_have_value("")
 
-
+def test_ts18_single_select_subcategory_replaces_existing(page: Page):
+    open_t2i(page)
+    type_and_enter(page, "elf")
+    type_and_enter(page, "human")        # race는 단일 선택
+    assert tag_names(page) == ["[종족] 인간(human)"]
+    
 # ── 최종 프롬프트 ─────────────────────────────────────────
 
 def test_fp01_reset_disabled_when_empty(page: Page):
@@ -310,3 +315,4 @@ def test_fp10_area_scrolls_to_reach_all_tags(page: Page):
     assert box.evaluate("""(e) => {
         const b = e.getBoundingClientRect(), t = e.lastElementChild.getBoundingClientRect()
         return t.top >= b.top - 1 && t.bottom <= b.bottom + 1 }""")
+

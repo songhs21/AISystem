@@ -2023,7 +2023,7 @@ function T2iModePanel({
 
         {/* 드래그 핸들 */}
         <div
-          onMouseDown={startSplitDrag}
+          onMouseDown={e => { e.preventDefault(); startSplitDrag() }}
           onTouchStart={startSplitDrag}
           style={{
             height: 10, flexShrink: 0, cursor: 'row-resize',
@@ -2040,6 +2040,7 @@ function T2iModePanel({
           overflowY: 'auto',
           display: 'flex', flexDirection: 'column', gap: 8,
           paddingTop: 8,
+          scrollPaddingTop: 8,   // scrollIntoView 가 위 여백(paddingTop)과 같은 간격으로 맞추도록: 첫 이동 시 8px 튀는 현상 제거
         }}>
           {CATEGORY_ORDER.map(cat => {
             const config = CATEGORY_CONFIG[cat] || []
