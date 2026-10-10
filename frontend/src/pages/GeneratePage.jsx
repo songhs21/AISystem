@@ -334,13 +334,26 @@ function toggleFeedbackTag(tag, kind) {
     if (followRef.current) showItem(fresh[fresh.length - 1])
   }, [queueData])
 
+  function enqueueErrorMessage(e) {
+    if (e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT')
+      return '서버 응답이 없습니다. 대기열을 확인한 뒤 다시 시도해 주세요.'
+    if (!e.response)
+      return '네트워크 오류로 생성 요청을 보내지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요.'
+    const detail = e.response.data?.detail
+    if (Array.isArray(detail))      // FastAPI 검증 오류: [{loc, msg}, ...]
+      return detail.map(d => d?.msg || JSON.stringify(d)).join('\n')
+    if (typeof detail === 'string' && detail) return detail
+    return e.message
+  }
+
   async function enqueue(request) {
     try {
       await request()
-      await refetchQueue()
     } catch (e) {
-      alert(e.response?.data?.detail || e.message)
+      alert(enqueueErrorMessage(e))
+      return
     }
+    await refetchQueue()
   }
 
   function startI2v(payload) {

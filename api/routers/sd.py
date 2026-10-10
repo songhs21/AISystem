@@ -7,7 +7,7 @@ import uuid
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import APIRouter, File, UploadFile, Form
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,7 @@ DENOISE_MIN, DENOISE_MAX = 0.1, 1.0
 LORA_STRENGTH_MIN, LORA_STRENGTH_MAX = 0.0, 1.0
 CFG_MIN, CFG_MAX = 1.0, 10.0
 I2I_DENOISE_DEFAULT = 0.7
+SEED_MAX = 2**64 - 1      # ComfyUI KSampler seed 최대값
 
 from core.image.generate import run_comfy, run_upscale, run_i2i, run_i2i_mask
 from core.image.preference import (
@@ -80,14 +81,52 @@ def _dedupe_tags(text: str) -> str:
             seen.add(t.lower())
             out.append(t)
     return ", ".join(out)
-    
+
+
+def _n(s: str) -> str:
+    """태그 비교 기준: 대소문자·밑줄/공백 무시"""
+    return s.replace("_", " ").strip().lower()
+
+
+def _split_tags(text: str) -> list[str]:
+    """쉼표 구분 → 공백 제거, 빈 태그(앞쪽 쉼표 포함) 제거"""
+    return [t.strip() for t in text.split(",") if t.strip()]
+
+
+def _merge_prompt(prefix: str | None, prompt: str) -> str:
+    """
+    prefix 태그 + 프롬프트 태그 병합
+    1) 프롬프트 내부 중복 제거 (먼저 나온 것 유지)
+    2) prefix 에 이미 있는 태그를 프롬프트에서 제거 (prefix 가 앞에 붙음)
+    3) join — 프롬프트가 비면 prefix 만, prefix 도 없으면 빈 문자열
+    """
+    prefix_tags = _split_tags(prefix or "")
+    seen, user_tags = set(), []
+    for t in _split_tags(prompt):
+        k = _n(t)
+        if k not in seen:
+            seen.add(k)
+            user_tags.append(t)
+    prefix_keys = {_n(t) for t in prefix_tags}
+    user_tags = [t for t in user_tags if _n(t) not in prefix_keys]
+    return ", ".join(prefix_tags + user_tags)
+
+
+def _validate_checkpoint(name: str) -> None:
+    """누락·빈값·로컬 목록에 없는 체크포인트는 큐 등록 전에 422 로 거부"""
+    if not (name or "").strip():
+        raise HTTPException(status_code=422, detail="체크포인트를 선택해 주세요.")
+    if name not in get_local_checkpoints():      # 앞뒤 공백이 있으면 다른 이름으로 취급
+        raise HTTPException(status_code=422, detail=f"체크포인트를 찾을 수 없습니다: {name}")
+
+
 # ── 스키마 ────────────────────────────────────────────────
 
 class GenerateRequest(BaseModel):
     prompt: str = ""
     negative: str = ""
-    checkpoint: str
-    seed: int = -1
+    checkpoint: str = ""      # 누락·빈값은 _validate_checkpoint 가 거부 (누락 메시지를 직접 주기 위함)
+    seed: int = Field(-1, le=SEED_MAX)
     lora_name: str = ""
     lora_strength: float = Field(0.8, ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)
 
@@ -99,7 +138,7 @@ class UpscaleRequest(BaseModel):
     prompt: str = ""
     negative: str = ""
     denoise: float = Field(I2I_DENOISE_DEFAULT, ge=DENOISE_MIN, le=DENOISE_MAX)
-    seed: int = -1
+    seed: int = Field(-1, le=SEED_MAX)
     lora_name: str = ""
     lora_strength: float = Field(0.8, ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)
 
@@ -109,7 +148,7 @@ class I2IRequest(BaseModel):
     prompt: str = ""
     negative: str = ""
     denoise: float = Field(I2I_DENOISE_DEFAULT, ge=DENOISE_MIN, le=DENOISE_MAX)
-    seed: int = -1
+    seed: int = Field(-1, le=SEED_MAX)
     lora_name: str = ""
     lora_strength: float = Field(0.8, ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)
 
@@ -185,14 +224,7 @@ def _t2i_events(req: GenerateRequest):
     if "scheduler" in cfg:
         workflow["3"]["inputs"]["scheduler"] = SCHEDULER_MAP.get(cfg["scheduler"], "normal")
 
-    core_prompt = req.prompt.strip()
-
-    # 이미 모델 prefix로 시작하면 다시 붙이지 않음
-    _n = lambda s: s.replace("_", " ").lower()
-    if v4_prefix and not _n(core_prompt).startswith(_n(v4_prefix)):
-        user_prompt = f"{v4_prefix}, {core_prompt}"
-    else:
-        user_prompt = core_prompt
+    user_prompt = _merge_prompt(v4_prefix, req.prompt)
     workflow["6"]["inputs"]["text"] = user_prompt
 
     if req.lora_name:
@@ -258,6 +290,8 @@ def generate(req: GenerateRequest):
     event: done      → {"gen_id": int, "image_path": str}
     event: error     → {"message": str}
     """
+    _validate_checkpoint(req.checkpoint)
+
     def stream():
         try:
             for ev in _t2i_events(req):
@@ -338,7 +372,7 @@ async def i2i_mask(
     prompt:      Annotated[str,   Form()] = "",
     negative:    Annotated[str,   Form()] = "",
     denoise:     Annotated[float, Form(ge=DENOISE_MIN, le=DENOISE_MAX)] = I2I_DENOISE_DEFAULT,
-    seed:        Annotated[int,   Form()] = -1,
+    seed:        Annotated[int,   Form(le=SEED_MAX)] = -1,
     lora_name:     Annotated[str,   Form()] = "",
     lora_strength: Annotated[float, Form(ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)] = 0.8,
     mask_file:   UploadFile = File(None),
@@ -385,7 +419,7 @@ class I2VRequest(BaseModel):
     image_path: str
     prompt:     str   = ""
     negative:   str   = ""
-    seed:       int   = -1
+    seed:       int   = Field(-1, le=SEED_MAX)
     width:      int   = 832
     height:     int   = 480
     length:     int   = 81
@@ -568,6 +602,7 @@ gen_queue.register_runner("i2v", _run_i2v)
 
 @router.post("/queue/t2i")
 def queue_t2i(req: GenerateRequest):
+    _validate_checkpoint(req.checkpoint)
     summary = {
         "mode": "t2i", "checkpoint": req.checkpoint,
         "prompt": req.prompt, "negative": req.negative,
@@ -583,7 +618,7 @@ async def queue_i2i(
     prompt:        Annotated[str,   Form()] = "",
     negative:      Annotated[str,   Form()] = "",
     denoise:       Annotated[float, Form(ge=DENOISE_MIN, le=DENOISE_MAX)] = I2I_DENOISE_DEFAULT,
-    seed:          Annotated[int,   Form()] = -1,
+    seed:          Annotated[int,   Form(le=SEED_MAX)] = -1,
     lora_name:     Annotated[str,   Form()] = "",
     lora_strength: Annotated[float, Form(ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)] = 0.8,
     mask_file:     UploadFile = File(None),
