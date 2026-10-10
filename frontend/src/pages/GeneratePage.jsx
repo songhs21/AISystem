@@ -36,6 +36,14 @@ import { CATEGORY_ORDER, CATEGORY_CONFIG } from '../constants/tagConfig'
 const DNA_TAB_H = 30                   // 하단 DNA 토글 탭 높이
 const OVERLAY_BOTTOM = DNA_TAB_H + 6   // 하단 오버레이가 뷰포트 바닥에서 떨어진 거리
 const ANIM = '0.25s ease'
+// 마음에 들지 않는 이유 (config/constants.py PASS_REASON_KO 와 동일하게 유지)
+const DISLIKE_REASONS = [
+  ['eye', '눈'], ['ear', '귀'], ['nose', '코'], ['mouth', '입'],
+  ['face_overall', '얼굴 전체'], ['hand', '손'], ['finger', '손가락'],
+  ['arm', '팔'], ['leg', '다리'], ['foot', '발'], ['body_overall', '체형/비율'],
+  ['body_penetration', '신체 관통'], ['extra_limb', '팔다리 추가 생성'],
+  ['clothing_fit', '의상 맞음새'], ['background', '배경'],
+]
 // ─── 유틸 함수 ───────────────────────────────────────────────────
 function getByPath(obj, path) {
   return path.split('.').reduce((acc, k) => acc?.[k], obj)
@@ -184,6 +192,7 @@ export default function GeneratePage({ quote }) {
   const [dislikedTags, setDislikedTags] = useState(new Set())
   const [falseTags, setFalseTags] = useState(new Set())
   const [score, setScore] = useState(5)
+  const [dislikeReasons, setDislikeReasons] = useState(new Set())
 
   const { data: cpData, isError: cpError, isFetching: cpFetching, refetch: refetchCp } = useQuery({
     queryKey: ['checkpoints'],
@@ -274,14 +283,16 @@ function toggleFeedbackTag(tag, kind) {
 
   async function saveFeedback() {
     if (!result) return
+    const isDislike = passType === '마음에 들지 않음'
+    // 마음에 들지 않음: 태그/점수는 저장하지 않고 이유만 저장
     await historyApi.saveFeedback({
       generation_id: result.gen_id,
-      score: passType === '마음에 들지 않음' ? null : score,
-      liked_tags: [...likedTags],
-      disliked_tags: [...dislikedTags],
-      false_tags: [...falseTags],
+      score: isDislike ? null : score,
+      liked_tags: isDislike ? [] : [...likedTags],
+      disliked_tags: isDislike ? [] : [...dislikedTags],
+      false_tags: isDislike ? [] : [...falseTags],
       pass_type: { '문제 없음': null, '그림체': 'style', '인체 디테일': 'quality', '마음에 들지 않음': 'dislike' }[passType],
-      pass_reasons: [],
+      pass_reasons: isDislike ? [...dislikeReasons] : [],
     })
     setResult(null)
     setTags([])
@@ -301,7 +312,7 @@ function toggleFeedbackTag(tag, kind) {
     setSelectedId(item.id)
     setMeta(itemMeta(item))
     setLikedTags(new Set()); setDislikedTags(new Set()); setFalseTags(new Set())
-    setScore(5); setPassType('문제 없음')
+    setScore(5); setPassType('문제 없음'); setDislikeReasons(new Set())
     const r = item.result || {}
 
     if (item.kind === 'i2v') {
@@ -323,6 +334,7 @@ function toggleFeedbackTag(tag, kind) {
 
   // 새로 완료된 항목 자동 표시 (보던 항목이 최신이 아니면 건너뜀)
   useEffect(() => {
+    if (!queueData) return   // 첫 응답 전에는 기준(이미 확인한 완료 항목)을 잡지 않음
     const done = queueItems.filter(i => i.status === 'done')
     if (seenDoneRef.current === null) {
       seenDoneRef.current = new Set(done.map(i => i.id))   // 첫 로드 때 기존 완료분은 자동 표시하지 않음
@@ -520,6 +532,7 @@ function toggleFeedbackTag(tag, kind) {
               <div style={{ flex: 3, minWidth: 0, display: 'flex', pointerEvents: 'auto' }}>
                 <button
                   className="btn btn-primary"
+                  data-testid="generate-btn"
                   disabled={!canGenerate}
                   onClick={() => generateRef.current?.()}
                   style={{ flex: 1, padding: '8px 12px', fontSize: 13, whiteSpace: 'nowrap' }}
@@ -578,7 +591,7 @@ function toggleFeedbackTag(tag, kind) {
           {/* 탭 전환 */}
           <div style={{ display: 'flex', gap: 4, padding: '0 12px 6px' }}>
             {[['image', '🖼️ 이미지'], ['video', '🎬 영상']].map(([key, label]) => (
-              <button key={key} className="btn btn-ghost"
+              <button key={key} className="btn btn-ghost" data-testid={`tab-${key}`}
                 style={{ fontSize: 12, padding: '4px 12px', ...(tab === key ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
                 onClick={() => selectTab(key)}>
                 {label}
@@ -588,7 +601,7 @@ function toggleFeedbackTag(tag, kind) {
           {tab === 'image' && (
             <div style={{ display: 'flex', gap: 4, padding: '0 12px 10px' }}>
               {[['T2I', 'T2I'], ['I2I', 'I2I']].map(([key, label]) => (
-                <button key={key} className="btn btn-ghost"
+                <button key={key} className="btn btn-ghost" data-testid={`mode-${key}`}
                   style={{ fontSize: 11, padding: '3px 10px', ...(mode === key ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
                   onClick={() => selectMode(key)}>
                   {label}
@@ -598,12 +611,13 @@ function toggleFeedbackTag(tag, kind) {
           )}
 
           {mode !== 'video' && (
-            <div style={{ padding: '0 12px 10px' }}>
+            <div data-testid="ckpt-field" style={{ padding: '0 12px 10px' }}>
               <label>체크포인트</label>
-              <select value={checkpoint} onChange={e => setCheckpoint(e.target.value)}>
+              <select data-testid="ckpt-select" value={checkpoint} onChange={e => setCheckpoint(e.target.value)}>
                 {checkpoints.map(c => <option key={c}>{c}</option>)}
               </select>
               <ListStatus
+                testId="ckpt-status"
                 error={cpError}
                 empty={!cpError && !cpFetching && checkpoints.length === 0}
                 fetching={cpFetching}
@@ -654,6 +668,7 @@ function toggleFeedbackTag(tag, kind) {
         {/* 오른쪽 태그 패널 (뷰포트를 밀어냄, 닫으면 완전히 숨김 — 언마운트 방지로 display 토글) */}
         {hasTags && (
           <button
+            data-testid="fb-toggle"
             onClick={() => setTagPanelOpen(v => !v)}
             style={{
               position: 'absolute', top: 0,
@@ -674,7 +689,7 @@ function toggleFeedbackTag(tag, kind) {
         )}
 
         {hasTags && (
-          <div style={{
+          <div data-testid="fb-panel" style={{
             position: 'absolute', top: 0, right: 0, bottom: 0,
             width: tagPanelW,
             background: 'var(--bg2)', borderLeft: '1px solid var(--border)',
@@ -696,7 +711,7 @@ function toggleFeedbackTag(tag, kind) {
             }}>
               <span style={{ fontWeight: 600, fontSize: 13 }}>🏷️ 태그 피드백</span>
               {result?.gen_id != null && (
-                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>#{result.gen_id}</span>
+                <span data-testid="fb-gen-id" style={{ fontSize: 11, color: 'var(--text-dim)' }}>#{result.gen_id}</span>
               )}
             </div>
 
@@ -712,12 +727,36 @@ function toggleFeedbackTag(tag, kind) {
             }}>
               {['문제 없음', '그림체', '인체 디테일', '마음에 들지 않음'].map(p => (
                 <button key={p} className="btn btn-ghost"
+                  data-testid={`fb-pass-${p}`}
                   style={{ fontSize: 11, padding: '3px 8px',
                     ...(passType === p ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
                   onClick={() => setPassType(p)}
                 >{p}</button>
               ))}
             </div>
+
+            {/* 마음에 들지 않는 이유 (복수 선택) */}
+            {passType === '마음에 들지 않음' && (
+              <div data-testid="fb-reasons" style={{
+                padding: '8px 14px', borderBottom: '1px solid var(--border)',
+                display: 'flex', gap: 4, flexWrap: 'wrap', flexShrink: 0,
+              }}>
+                {DISLIKE_REASONS.map(([key, label]) => {
+                  const on = dislikeReasons.has(key)
+                  return (
+                    <button key={key} className="btn btn-ghost"
+                      data-testid={`fb-reason-${key}`}
+                      aria-pressed={on}
+                      style={{ fontSize: 11, padding: '3px 8px',
+                        ...(on ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                      onClick={() => setDislikeReasons(prev => {
+                        const n = new Set(prev); on ? n.delete(key) : n.add(key); return n
+                      })}
+                    >{on ? '✓ ' : ''}{label}</button>
+                  )
+                })}
+              </div>
+            )}
 
             {/* 태그 목록 */}
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
@@ -735,8 +774,8 @@ function toggleFeedbackTag(tag, kind) {
             {/* 스코어 */}
             {passType !== '마음에 들지 않음' && (
               <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-                <label>Score: {score}</label>
-                <input type="range" min={0} max={10} value={score}
+                <label data-testid="fb-score-label">Score: {score}</label>
+                <input type="range" min={0} max={10} value={score} data-testid="fb-score"
                   onChange={e => setScore(+e.target.value)}
                   style={{ width: '100%', padding: 0, border: 'none', background: 'none' }} />
               </div>
@@ -744,7 +783,7 @@ function toggleFeedbackTag(tag, kind) {
 
             {/* 저장 */}
             <div style={{ padding: 12, borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-              <button className="btn btn-primary" style={{ width: '100%' }} onClick={saveFeedback}>
+              <button className="btn btn-primary" data-testid="fb-save" style={{ width: '100%' }} onClick={saveFeedback}>
                 피드백 저장
               </button>
             </div>
@@ -754,7 +793,7 @@ function toggleFeedbackTag(tag, kind) {
 
       {/* 공용 오버레이들 */}
       {i2iOverlay && (
-        <div onClick={() => setI2iOverlay(null)} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div data-testid="image-overlay" onClick={() => setI2iOverlay(null)} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={i2iOverlay} style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8 }} />
         </div>
       )}
@@ -815,9 +854,49 @@ function toggleFeedbackTag(tag, kind) {
 }
 
 // ── 공용 슬롯 컴포넌트 ─────────────────────────────────────
-function I2iSlot({ label, required, value, onUpload, onHistoryPick, onDraw, onRemove, onPreview }) {
+// I2V 최소값 (서버 sd.py I2V_*_MIN 과 같게 유지)
+const I2V_MIN = { width: 832, height: 480, length: 10, steps: 2, seed: -1 }
+
+// 정수 입력란: 입력 중(포커스)에는 비울 수 있고, 포커스가 빠지면 비었거나 최소값 미만인 값을 최소값으로 되돌린다
+function IntField({ label, value, onChange, min, testId }) {
+  const [text, setText] = useState(String(value))
+  const [focused, setFocused] = useState(false)
+  useEffect(() => { if (!focused) setText(String(value)) }, [value, focused])
   return (
-    <div style={{
+    <div>
+      <label>{label}</label>
+      <input
+        data-testid={testId} type="number" min={min} value={text}
+        onFocus={() => setFocused(true)}
+        onChange={e => {
+          const t = e.target.value
+          setText(t)
+          if (t !== '' && !Number.isNaN(+t)) onChange(+t)
+        }}
+        onBlur={() => {
+          setFocused(false)
+          let n = text === '' ? NaN : Math.trunc(+text)
+          if (Number.isNaN(n) || n < min) n = min
+          setText(String(n))
+          onChange(n)
+        }}
+      />
+    </div>
+  )
+}
+
+// 이미지 업로드 실패 안내: 서버가 준 사유(확장자 등)가 있으면 그대로, 없으면 한글 기본 문구
+function uploadErrorMessage(e) {
+  const detail = e?.response?.data?.detail
+  if (typeof detail === 'string' && detail) return detail
+  if (e?.response) return `이미지를 업로드하지 못했습니다. (서버 응답 ${e.response.status})`
+  return '네트워크 오류로 이미지를 업로드하지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요.'
+}
+
+function I2iSlot({ label, required, value, onUpload, onHistoryPick, onDraw, onRemove, onPreview, testId }) {
+  const tid = suffix => testId && `${testId}-${suffix}`
+  return (
+    <div data-testid={testId} style={{
       display: 'flex', alignItems: 'center', gap: 8,
       padding: '6px 8px', borderRadius: 6,
       background: 'var(--bg3)', border: '1px solid var(--border)',
@@ -829,29 +908,30 @@ function I2iSlot({ label, required, value, onUpload, onHistoryPick, onDraw, onRe
       {value ? (
         <>
           <img
+            data-testid={tid('img')}
             src={value.src}
             onClick={() => onPreview(value.src)}
             style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', border: '1px solid var(--border)' }}
           />
-          <span style={{ fontSize: 11, color: 'var(--text-dim)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span data-testid={tid('name')} style={{ fontSize: 11, color: 'var(--text-dim)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {value.filename}
           </span>
-          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 6px' }} onClick={onRemove}>×</button>
+          <button className="btn btn-ghost" data-testid={tid('remove')} style={{ fontSize: 11, padding: '2px 6px' }} onClick={onRemove}>×</button>
         </>
       ) : (
         <>
           {onDraw ? (
-            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onDraw}>
+            <button className="btn btn-ghost" data-testid={tid('draw')} style={{ fontSize: 11, padding: '2px 8px' }} onClick={onDraw}>
               🖌️ 드로잉
             </button>
           ) : (
             <label style={{ margin: 0 }}>
-              <input type="file" accept="image/*" onChange={onUpload} style={{ display: 'none' }} />
+              <input type="file" accept="image/*" data-testid={tid('file')} onChange={onUpload} style={{ display: 'none' }} />
               <span className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>📁 업로드</span>
             </label>
           )}
           {onHistoryPick && (
-            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onHistoryPick}>
+            <button className="btn btn-ghost" data-testid={tid('history')} style={{ fontSize: 11, padding: '2px 8px' }} onClick={onHistoryPick}>
               📋 히스토리
             </button>
           )}
@@ -871,6 +951,7 @@ function HistoryImagePicker({ onPick, onClose }) {
 
   return (
     <div
+      data-testid="history-picker"
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 300,
@@ -897,6 +978,7 @@ function HistoryImagePicker({ onPick, onClose }) {
             return (
               <img
                 key={gen.id}
+                data-testid="history-item"
                 src={src}
                 onClick={() => onPick(gen)}
                 style={{
@@ -1052,6 +1134,7 @@ function MaskDrawOverlay({ imageSrc, onDone, onClose }) {
 
   return (
     <div
+      data-testid="mask-overlay"
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 500,
@@ -1081,9 +1164,9 @@ function MaskDrawOverlay({ imageSrc, onDone, onClose }) {
               style={{ width: 100, padding: 0, border: 'none', background: 'none' }} />
           </div>
           <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 8 }}>휠: 줌 / 중클릭: 패닝</span>
-          <button className="btn btn-ghost" style={{ marginLeft: 'auto' }} onClick={clearMask}>초기화</button>
-          <button className="btn btn-primary" onClick={handleDone}>완료</button>
-          <button className="btn btn-ghost" onClick={onClose}>✕</button>
+          <button className="btn btn-ghost" data-testid="mask-clear" style={{ marginLeft: 'auto' }} onClick={clearMask}>초기화</button>
+          <button className="btn btn-primary" data-testid="mask-done" onClick={handleDone}>완료</button>
+          <button className="btn btn-ghost" data-testid="mask-close" onClick={onClose}>✕</button>
         </div>
 
         <div
@@ -1132,12 +1215,13 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
   )
   const [prompt, setPrompt]         = useState(draft.prompt ?? '')
   const [negative, setNegative]     = useState(draft.negative ?? '')
-  const [seed, setSeed]             = useState(draft.seed ?? -1)
-  const [width, setWidth]           = useState(draft.width ?? 1280)
-  const [height, setHeight]         = useState(draft.height ?? 720)
-  const [length, setLength]         = useState(draft.length ?? 81)
-  const [highSteps, setHighSteps]   = useState(draft.highSteps ?? 2)
-  const [lowSteps, setLowSteps]     = useState(draft.lowSteps ?? 3)
+  // 저장된 값이 최소값보다 작으면 최소값으로 올려서 복원
+  const [seed, setSeed]             = useState(Math.max(I2V_MIN.seed, draft.seed ?? -1))
+  const [width, setWidth]           = useState(Math.max(I2V_MIN.width, draft.width ?? I2V_MIN.width))
+  const [height, setHeight]         = useState(Math.max(I2V_MIN.height, draft.height ?? I2V_MIN.height))
+  const [length, setLength]         = useState(Math.max(I2V_MIN.length, draft.length ?? 81))
+  const [highSteps, setHighSteps]   = useState(Math.max(I2V_MIN.steps, draft.highSteps ?? 2))
+  const [lowSteps, setLowSteps]     = useState(Math.max(I2V_MIN.steps, draft.lowSteps ?? 3))
   const [cfg, setCfg]               = useState(draft.cfg ?? 1.0)
   const [loraName, setLoraName]         = useState(draft.loraName ?? '')
   const [loraStrength, setLoraStrength] = useState(draft.loraStrength ?? 0.8)
@@ -1178,19 +1262,16 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
     localStorage.setItem('i2vDraft', JSON.stringify(draft))
   }, [baseImage, prompt, negative, seed, width, height, length, highSteps, lowSteps, cfg, loraName, loraStrength])
 
-  useEffect(() => {
-    if (!pendingQuote) return
-    if (pendingQuote.positive != null) setPrompt(pendingQuote.positive)
-    if (pendingQuote.negative != null) setNegative(pendingQuote.negative)
-    onQuoteConsumed?.()
-  }, [pendingQuote])
-
   async function handleUpload(e) {
     const file = e.target.files?.[0]
     if (!file) return
-    const res = await systemApi.uploadImage(file)
-    const src = URL.createObjectURL(file)
-    setBaseImage({ path: res.data.path, src, filename: file.name })
+    try {
+      const res = await systemApi.uploadImage(file)
+      const src = URL.createObjectURL(file)
+      setBaseImage({ path: res.data.path, src, filename: file.name })
+    } catch (err) {
+      alert(uploadErrorMessage(err))
+    }
   }
 
   function handleRun() {
@@ -1209,11 +1290,11 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
   }
   useEffect(() => { bindGenerate?.(handleRun, !!baseImage) })
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
+    <div data-testid="video-panel" style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
       {/* 서브 모드 */}
       <div style={{ display: 'flex', gap: 4 }}>
         {[['i2v', '🖼️→🎬 I2V'], ['t2v', '📝→🎬 T2V (준비중)']].map(([key, label]) => (
-          <button key={key} className="btn btn-ghost"
+          <button key={key} className="btn btn-ghost" data-testid={`video-sub-${key}`}
             disabled={key === 't2v'}
             style={{ fontSize: 11, padding: '3px 10px', ...(subMode === key ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
             onClick={() => setSubMode(key)}>
@@ -1225,6 +1306,7 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
       {subMode === 'i2v' && (
         <>
           <I2iSlot
+            testId="video-base"
             label="베이스"
             required
             value={baseImage}
@@ -1240,12 +1322,12 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
 
           <div>
             <label>✅ 프롬프트</label>
-            <ClearableTextarea value={prompt} onChange={setPrompt}
+            <ClearableTextarea testId="video-prompt" value={prompt} onChange={setPrompt}
               style={{ height: 70, resize: 'vertical', fontSize: 11 }} />
           </div>
           <div>
             <label>❌ 네거티브</label>
-            <ClearableTextarea value={negative} onChange={setNegative}
+            <ClearableTextarea testId="video-neg" value={negative} onChange={setNegative}
               style={{ height: 50, resize: 'vertical', fontSize: 11 }} />
           </div>
 
@@ -1253,11 +1335,12 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>🎨 LoRA</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <select value={loraName} onChange={e => setLoraName(e.target.value)} style={{ fontSize: 12 }}>
+              <select data-testid="video-lora-select" value={loraName} onChange={e => setLoraName(e.target.value)} style={{ fontSize: 12 }}>
                 <option value="">LoRA 없음</option>
                 {loras.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
               <ListStatus
+                testId="video-lora-status"
                 error={loraError}
                 empty={!loraError && !loraFetching && loras.length === 0}
                 fetching={loraFetching}
@@ -1267,8 +1350,8 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
               />
               {loraName && (
                 <>
-                  <label>Strength: {loraStrength}</label>
-                  <input type="range" min={0} max={1} step={0.05} value={loraStrength}
+                  <label data-testid="video-lora-strength-label">Strength: {loraStrength}</label>
+                  <input data-testid="video-lora-strength" type="range" min={0} max={1} step={0.05} value={loraStrength}
                     onChange={e => setLoraStrength(+e.target.value)}
                     style={{ padding: 0, border: 'none', background: 'none' }} />
                 </>
@@ -1277,13 +1360,13 @@ function VideoModePanel({ onRun, onPreview, openHistoryPicker, bindGenerate, pen
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div><label>Width</label><input type="number" value={width} step={8} onChange={e => setWidth(+e.target.value)} /></div>
-            <div><label>Height</label><input type="number" value={height} step={8} onChange={e => setHeight(+e.target.value)} /></div>
-            <div><label>Frames</label><input type="number" value={length} onChange={e => setLength(+e.target.value)} /></div>
-            <div><label>Seed (-1=랜덤)</label><input type="number" value={seed} onChange={e => setSeed(+e.target.value)} /></div>
-            <div><label>High Steps</label><input type="number" value={highSteps} min={1} onChange={e => setHighSteps(+e.target.value)} /></div>
-            <div><label>Low Steps</label><input type="number" value={lowSteps} min={1} onChange={e => setLowSteps(+e.target.value)} /></div>
-            <div><label>CFG: {cfg}</label><input type="range" min={1} max={10} step={0.5} value={cfg} onChange={e => setCfg(+e.target.value)} style={{ padding: 0, border: 'none', background: 'none' }} /></div>
+            <IntField label="Width" testId="video-width" value={width} onChange={setWidth} min={I2V_MIN.width} />
+            <IntField label="Height" testId="video-height" value={height} onChange={setHeight} min={I2V_MIN.height} />
+            <IntField label="Frames" testId="video-length" value={length} onChange={setLength} min={I2V_MIN.length} />
+            <IntField label="Seed (-1=랜덤)" testId="video-seed" value={seed} onChange={setSeed} min={I2V_MIN.seed} />
+            <IntField label="High Steps" testId="video-high-steps" value={highSteps} onChange={setHighSteps} min={I2V_MIN.steps} />
+            <IntField label="Low Steps" testId="video-low-steps" value={lowSteps} onChange={setLowSteps} min={I2V_MIN.steps} />
+            <div><label data-testid="video-cfg-label">CFG: {cfg}</label><input data-testid="video-cfg" type="range" min={1} max={10} step={0.5} value={cfg} onChange={e => setCfg(+e.target.value)} style={{ padding: 0, border: 'none', background: 'none' }} /></div>
           </div>
         </>
       )}
@@ -1320,8 +1403,15 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bin
       const src = URL.createObjectURL(file)
       setSlot({ file, filename: file.name, src, path })
     } catch (err) {
-      alert(err.message)
+      alert(uploadErrorMessage(err))
     }
+  }
+
+  // 베이스 이미지가 바뀌거나 지워지면 기존 마스크는 새 이미지와 맞지 않으므로 함께 지운다
+  function changeBase(next) {
+    setBaseImage(next)
+    setMaskBlob(null)
+    setMaskSrc(null)
   }
 
   async function generate() {
@@ -1364,21 +1454,21 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bin
     onQuoteConsumed?.()
   }, [pendingQuote])
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
+    <div data-testid="i2i-panel" style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', width: '100%' }}>
       <div>
             <label>✅ 프롬프트</label>
-            <ClearableTextarea value={prompt} onChange={setPrompt}
+            <ClearableTextarea testId="i2i-prompt" value={prompt} onChange={setPrompt}
               style={{ height: 70, resize: 'vertical', fontSize: 11 }} />
           </div>
           <div>
             <label>❌ 네거티브</label>
-            <ClearableTextarea value={negative} onChange={setNegative}
+            <ClearableTextarea testId="i2i-neg" value={negative} onChange={setNegative}
               style={{ height: 50, resize: 'vertical', fontSize: 11 }} />
           </div>
 
       <div>
-        <label>Denoise: {denoise} (낮을수록 원본 유지)</label>
-        <input type="range" min={0.1} max={1.0} step={0.05} value={denoise}
+        <label data-testid="i2i-denoise-label">Denoise: {denoise} (낮을수록 원본 유지)</label>
+        <input data-testid="i2i-denoise" type="range" min={0.1} max={1.0} step={0.05} value={denoise}
           onChange={e => setDenoise(+e.target.value)}
           style={{ padding: 0, border: 'none', background: 'none' }} />
       </div>
@@ -1387,11 +1477,12 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bin
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
         <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>🎨 LoRA</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <select value={loraName} onChange={e => setLoraName(e.target.value)} style={{ fontSize: 12 }}>
+          <select data-testid="i2i-lora-select" value={loraName} onChange={e => setLoraName(e.target.value)} style={{ fontSize: 12 }}>
             <option value="">LoRA 없음</option>
             {loras.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
           <ListStatus
+                testId="i2i-lora-status"
                 error={loraError}
                 empty={!loraError && !loraFetching && loras.length === 0}
                 fetching={loraFetching}
@@ -1401,8 +1492,8 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bin
               />
           {loraName && (
             <>
-              <label>Strength: {loraStrength}</label>
-              <input type="range" min={0} max={1} step={0.05} value={loraStrength}
+              <label data-testid="i2i-lora-strength-label">Strength: {loraStrength}</label>
+              <input data-testid="i2i-lora-strength" type="range" min={0} max={1} step={0.05} value={loraStrength}
                 onChange={e => setLoraStrength(+e.target.value)}
                 style={{ padding: 0, border: 'none', background: 'none' }} />
             </>
@@ -1414,19 +1505,19 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bin
         <label>이미지 슬롯</label>
 
         <I2iSlot
-          label="베이스" required value={baseImage}
-          onUpload={e => handleUpload(e, setBaseImage)}
+          testId="i2i-base" label="베이스" required value={baseImage}
+          onUpload={e => handleUpload(e, changeBase)}
           onHistoryPick={() => openHistoryPicker(gen => {
             const path = gen.image_path
             const src = `${API_BASE}/api/system/image?path=${encodeURIComponent(path)}`
-            setBaseImage({ file: null, filename: path.split(/[/\\]/).pop(), src, path })
+            changeBase({ file: null, filename: path.split(/[/\\]/).pop(), src, path })
           })}
-          onRemove={() => setBaseImage(null)}
+          onRemove={() => changeBase(null)}
           onPreview={onPreview}
         />
 
         <I2iSlot
-          label="마스크"
+          testId="i2i-mask" label="마스크"
           value={maskSrc ? { src: maskSrc, filename: '마스크' } : null}
           onDraw={() => {
             if (!baseImage) { alert('베이스 이미지를 먼저 선택해주세요'); return }
@@ -1437,7 +1528,7 @@ function I2iModePanel({ checkpoint, onEnqueue, onPreview, openHistoryPicker, bin
         />
 
         <I2iSlot
-          label="레퍼런스" value={refImage}
+          testId="i2i-ref" label="레퍼런스" value={refImage}
           onUpload={e => handleUpload(e, setRefImage)}
           onRemove={() => setRefImage(null)}
           onPreview={onPreview}
@@ -1687,6 +1778,7 @@ function T2iModePanel({
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
     return (
       <div ref={setNodeRef}
+        data-testid="prompt-tag"
         style={{
           transform: CSS.Transform.toString(transform),
           transition,
@@ -1722,10 +1814,10 @@ function T2iModePanel({
   return (
     <div style={{ flex: 1, width: 0, display: 'flex', flexDirection: 'column', gap: 8, overflow: 'hidden' }}>
 
-      <div ref={splitContainerRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+      <div ref={splitContainerRef} data-testid="split-box" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
 
         {/* 상단 단: 검색, 프롬프트 미리보기, LoRA, 부정 프롬프트, 고급 옵션 */}
-        <div style={{
+        <div data-testid="top-pane" style={{
           height: `${topRatio * 100}%`,
           overflowY: 'auto',
           display: 'flex', flexDirection: 'column', gap: 6,
@@ -1734,6 +1826,7 @@ function T2iModePanel({
           
           {/* 전체 태그 검색 */}
             <input
+              data-testid="tag-search"
               placeholder="🔍 전체 태그 검색..."
               value={globalSearch}
               onChange={e => { setGlobalSearch(e.target.value); setGlobalSearchOpen(true); setGlobalNavIndex(-1) }}
@@ -1821,6 +1914,7 @@ function T2iModePanel({
                   const isNavActive = i === globalNavIndex
                   return (
                     <div key={`${t.subKey}-${t.en}-${i}`}
+                      data-testid="search-result"
                       onMouseDown={e => {
                         // 이미 선택된 태그는 무시 (해제하지 않음). preventDefault로 입력창 포커스 유지 → 목록도 유지
                         if (isSelected) { e.preventDefault(); return }
@@ -1858,9 +1952,10 @@ function T2iModePanel({
           </div>
 
           {/* 최종 프롬프트 미리보기 */}
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+          <div data-testid="prompt-preview" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
             <div style={{ display: 'flex', gap: 4 }}>
                 <button className="btn btn-ghost"
+                  data-testid="prompt-reset"
                   style={{ fontSize: 11, padding: '2px 8px' }}
                   disabled={promptOrder.length === 0}
                   onClick={() => {
@@ -1872,6 +1967,7 @@ function T2iModePanel({
                   🗑️ 초기화
                 </button>
                 <button className="btn btn-ghost"
+                  data-testid="prompt-copy"
                   style={{ fontSize: 11, padding: '2px 8px' }}
                   onClick={() => navigator.clipboard.writeText(promptOrder.map(t => t.en).join(', '))}>
                   📋 복사
@@ -1896,7 +1992,7 @@ function T2iModePanel({
                 items={promptOrder.map(t => t.isManual ? `manual::${t.en}` : `${t.subKey}::${t.en}`)}
                 strategy={rectSortingStrategy}
               >
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 150, overflowY: 'auto' }}>
+                <div data-testid="prompt-tags" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 150, overflowY: 'auto' }}>
                   {promptOrder.map((t) => {
                     const { subKey, en, isManual } = t
                     const cat = subKey?.split('.')[0]
@@ -1951,7 +2047,7 @@ function T2iModePanel({
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>🎨 LoRA</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <select value={loraName} onChange={e => setLoraName(e.target.value)} style={{ fontSize: 12 }}>
+              <select data-testid="t2i-lora-select" value={loraName} onChange={e => setLoraName(e.target.value)} style={{ fontSize: 12 }}>
                 <option value="">LoRA 없음</option>
                 {loras.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
@@ -1966,7 +2062,7 @@ function T2iModePanel({
               {loraName && (
                 <>
                   <label>Strength: {loraStrength}</label>
-                  <input type="range" min={0} max={1} step={0.05} value={loraStrength}
+                  <input data-testid="t2i-lora-strength" type="range" min={0} max={1} step={0.05} value={loraStrength}
                     onChange={e => setLoraStrength(+e.target.value)}
                     style={{ padding: 0, border: 'none', background: 'none' }} />
                 </>
@@ -1977,7 +2073,7 @@ function T2iModePanel({
           {/* 부정 프롬프트 */}
           <div>
             <label>❌ 부정 프롬프트</label>
-            <ClearableTextarea value={negative} onChange={setNegative}
+            <ClearableTextarea testId="neg-box" value={negative} onChange={setNegative}
               style={{ height: 56, resize: 'vertical', fontSize: 11 }} />
           </div>
 
@@ -1985,6 +2081,7 @@ function T2iModePanel({
           <div>
             <button
               className="btn btn-ghost"
+              data-testid="adv-toggle"
               style={{ width: '100%', fontSize: 11, padding: '4px 8px', textAlign: 'left' }}
               onClick={() => setShowAdvanced(v => !v)}
             >
@@ -1996,6 +2093,7 @@ function T2iModePanel({
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {CATEGORY_ORDER.map(cat => (
                     <button key={cat} className="btn btn-ghost"
+                      data-testid={`nav-${cat}`}
                       style={{ fontSize: 11, padding: '3px 8px',
                         ...(selectedNav === cat ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
                       onClick={() => {
@@ -2036,6 +2134,7 @@ function T2iModePanel({
 
         {/* 드래그 핸들 */}
         <div
+          data-testid="split-handle"
           onMouseDown={e => { e.preventDefault(); startSplitDrag() }}
           onTouchStart={startSplitDrag}
           style={{
@@ -2048,7 +2147,7 @@ function T2iModePanel({
         </div>
 
         {/* 하단 단: 카테고리 목록 */}
-        <div style={{
+        <div data-testid="cat-scroller" style={{
           height: `${(1 - topRatio) * 100}%`,
           overflowY: 'auto',
           display: 'flex', flexDirection: 'column', gap: 8,
@@ -2068,8 +2167,8 @@ function T2iModePanel({
             }
 
             return (
-              <div key={cat} ref={el => catRefs.current[cat] = el} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, flexShrink: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>{cat}</div>
+              <div key={cat} ref={el => catRefs.current[cat] = el} data-testid={`cat-block-${cat}`} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, flexShrink: 0 }}>
+                <div data-testid={`cat-title-${cat}`} style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>{cat}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {config.map(sub => {
                     const subKey = `${cat}.${sub.key}`
@@ -2085,7 +2184,7 @@ function T2iModePanel({
                       .slice(0, 5)
 
                     return (
-                      <div key={subKey} ref={el => subRefs.current[subKey] = el} style={{
+                      <div key={subKey} ref={el => subRefs.current[subKey] = el} data-testid={`sub-block-${sub.label}`} style={{
                         borderRadius: 6,
                         background: isDisabled ? 'var(--bg)' : 'var(--bg3)',
                         opacity: isDisabled ? 0.4 : 1,
@@ -2101,7 +2200,7 @@ function T2iModePanel({
                             borderBottom: isOpen ? '1px solid var(--border)' : 'none',
                           }}
                         >
-                          <span style={{ fontSize: 11, color: 'var(--text-dim)', flex: 1 }}>
+                          <span data-testid={`sub-title-${sub.label}`} style={{ fontSize: 11, color: 'var(--text-dim)', flex: 1 }}>
                             {sub.label}
                             {!sub.multi && <span style={{ color: 'var(--accent)', marginLeft: 4, fontSize: 10 }}>단일</span>}
                             <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>{isOpen ? '▼' : '▶'}</span>
@@ -2226,10 +2325,11 @@ function T2iModePanel({
 }
 
 // ── 초기화(X) 버튼이 달린 텍스트박스 ─────────────────────
-function ClearableTextarea({ value, onChange, style, ...rest }) {
+function ClearableTextarea({ value, onChange, style, testId, ...rest }) {
   return (
-    <div style={{ position: 'relative' }}>
+    <div data-testid={testId} style={{ position: 'relative' }}>
       <textarea
+        data-testid={testId && `${testId}-text`}
         value={value}
         onChange={e => onChange(e.target.value)}
         style={{ ...style, paddingRight: 26 }}
@@ -2239,6 +2339,7 @@ function ClearableTextarea({ value, onChange, style, ...rest }) {
         <button
           type="button"
           title="초기화"
+          data-testid={testId && `${testId}-clear`}
           onClick={() => onChange('')}
           style={{
             position: 'absolute', top: 4, right: 4,
@@ -2253,7 +2354,7 @@ function ClearableTextarea({ value, onChange, style, ...rest }) {
   )
 }
 
-function ListStatus({ error, empty, fetching, onRetry, errorText, emptyText }) {
+function ListStatus({ error, empty, fetching, onRetry, errorText, emptyText, testId }) {
   // 다시 요청하는 동안 error/empty 상태가 초기화되므로, 직전에 보이던 안내 종류를 기억해 둔다
   const [last, setLast] = useState(null) // 'error' | 'empty' | null
   useEffect(() => {
@@ -2265,7 +2366,7 @@ function ListStatus({ error, empty, fetching, onRetry, errorText, emptyText }) {
   const kind = error ? 'error' : empty ? 'empty' : (fetching ? last : null)
   if (!kind) return null
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, opacity: 0.8, marginTop: 4 }}>
+    <div data-testid={testId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, opacity: 0.8, marginTop: 4 }}>
       <span>{kind === 'error' ? errorText : emptyText}</span>
       <button type="button" onClick={onRetry} disabled={fetching}
         style={{ fontSize: 11, padding: '2px 8px', flexShrink: 0 }}>

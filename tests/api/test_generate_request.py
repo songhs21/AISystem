@@ -262,3 +262,24 @@ def test_gn28_seed_limit_on_other_requests(model, fields):
     assert model(seed=SEED_LIMIT, **fields).seed == SEED_LIMIT        # GND-34
     with pytest.raises(ValidationError):                              # GND-35
         model(seed=SEED_LIMIT + 1, **fields)
+
+
+# ── GN-25(서버 부분) 실행 중 오류: DB 상태가 failed 로 바뀌고 예외는 그대로 전달된다
+# 큐 카드 "⚠ 실패"와 상단 오류 줄은 tests/e2e/test_generate_request.py::test_gn25_failed_item_is_shown
+def test_gn25_run_error_marks_db_failed(test_db, monkeypatch):
+    monkeypatch.setattr(sd, "is_comfy_alive", lambda: True)
+    monkeypatch.setattr(sd, "get_model_config", fake_config)
+
+    def failing_run_comfy(workflow):
+        raise RuntimeError("ComfyUI 오류: boom")
+        yield                       # 제너레이터로 만들기 위한 줄(도달하지 않음)
+
+    monkeypatch.setattr(sd, "run_comfy", failing_run_comfy)
+    req = sd.GenerateRequest(prompt="1girl", checkpoint=WITH_PREFIX)
+    with pytest.raises(RuntimeError, match="boom"):
+        list(sd._t2i_events(req))
+
+    conn = sqlite3.connect(test_db)
+    rows = conn.execute("SELECT status FROM generations").fetchall()
+    conn.close()
+    assert rows == [("failed",)]

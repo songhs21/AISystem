@@ -19,11 +19,14 @@ def queued(monkeypatch):
         return "test-id"
 
     monkeypatch.setattr(sd.gen_queue, "enqueue", fake_enqueue)
+    # I2I 는 체크포인트·이미지 파일 존재 검증이 있으므로 둘 다 통과하도록 고정
+    monkeypatch.setattr(sd, "get_local_checkpoints", lambda: ["x.safetensors"])
+    monkeypatch.setattr(sd, "_image_exists", lambda p: True)
     return calls
 
 
 def post_i2i(denoise=None):
-    data = {"image_path": "x.png"}
+    data = {"image_path": "x.png", "checkpoint": "x.safetensors"}
     if denoise is not None:
         data["denoise"] = denoise
     return client.post(QUEUE_I2I, data=data)

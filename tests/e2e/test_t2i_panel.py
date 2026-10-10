@@ -56,8 +56,8 @@ def toggle_close(page): return page.get_by_role("button", name="◀ 접기", exa
 def img_tab(page):      return page.get_by_role("button", name=re.compile(r"^.{1,3}\s이미지$"))
 def video_tab(page):    return page.get_by_role("button", name=re.compile(r"^.{1,3}\s영상$"))
 def mode_btn(page, label): return page.get_by_role("button", name=label, exact=True)
-def ckpt_select(page):  return page.locator("label:text-is('체크포인트') + select")
-def ckpt_notice(page):  return ckpt_select(page).locator("xpath=following-sibling::div[1]")
+def ckpt_select(page):  return page.get_by_test_id("ckpt-select")
+def ckpt_notice(page):  return page.get_by_test_id("ckpt-status")
 def retry_btn(page):    return ckpt_notice(page).get_by_role("button")
 
 
@@ -95,7 +95,7 @@ def test_pn04_t2i_button_shows_t2i_menu(page: Page):
     open_app(page)
     mode_btn(page, "I2I").click()
     mode_btn(page, "T2I").click()
-    expect(page.get_by_placeholder("🔍 전체 태그 검색...")).to_be_visible()
+    expect(page.get_by_test_id("tag-search")).to_be_visible()
     expect(page.get_by_text("❌ 부정 프롬프트")).to_be_visible()
 
 
@@ -162,7 +162,7 @@ def test_ck06_retry_requests_again_without_reload(page: Page):
     assert len(held) == 1, "다시 시도를 눌러도 요청이 가지 않음"
 
     # 요청이 대기 중인 동안의 화면 (실패 시 이 출력이 원인 판단에 쓰임)
-    print("대기 중 영역 텍스트:", repr(ckpt_select(page).locator("xpath=..").inner_text()))
+    print("대기 중 영역 텍스트:", repr(page.get_by_test_id("ckpt-field").inner_text()))
     print("대기 중 안내 개수:", ckpt_notice(page).count())
     expect(retry_btn(page)).to_be_disabled()   # TC: 요청 중에는 버튼이 비활성
 

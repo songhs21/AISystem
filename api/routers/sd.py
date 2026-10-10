@@ -19,6 +19,8 @@ LORA_STRENGTH_MIN, LORA_STRENGTH_MAX = 0.0, 1.0
 CFG_MIN, CFG_MAX = 1.0, 10.0
 I2I_DENOISE_DEFAULT = 0.7
 SEED_MAX = 2**64 - 1      # ComfyUI KSampler seed 최대값
+# I2V 최소값 (사용자 결정 2026-10-10: 480p 기준, 프레임 10, 스텝 각 2). 상한은 두지 않는다
+I2V_WIDTH_MIN, I2V_HEIGHT_MIN, I2V_LENGTH_MIN, I2V_STEPS_MIN = 832, 480, 10, 2
 
 from core.image.generate import run_comfy, run_upscale, run_i2i, run_i2i_mask
 from core.image.preference import (
@@ -118,6 +120,18 @@ def _validate_checkpoint(name: str) -> None:
         raise HTTPException(status_code=422, detail="체크포인트를 선택해 주세요.")
     if name not in get_local_checkpoints():      # 앞뒤 공백이 있으면 다른 이름으로 취급
         raise HTTPException(status_code=422, detail=f"체크포인트를 찾을 수 없습니다: {name}")
+
+
+def _image_exists(path: str) -> bool:
+    return os.path.isfile(path)
+
+
+def _validate_image_path(path: str) -> None:
+    """빈값·존재하지 않는 베이스 이미지는 큐 등록 전에 422 로 거부"""
+    if not (path or "").strip():
+        raise HTTPException(status_code=422, detail="베이스 이미지를 선택해 주세요.")
+    if not _image_exists(path):
+        raise HTTPException(status_code=422, detail=f"이미지 파일을 찾을 수 없습니다: {path}")
 
 
 # ── 스키마 ────────────────────────────────────────────────
@@ -420,11 +434,11 @@ class I2VRequest(BaseModel):
     prompt:     str   = ""
     negative:   str   = ""
     seed:       int   = Field(-1, le=SEED_MAX)
-    width:      int   = 832
-    height:     int   = 480
-    length:     int   = 81
-    high_steps: int   = 2
-    low_steps:  int   = 3
+    width:      int   = Field(832, ge=I2V_WIDTH_MIN)
+    height:     int   = Field(480, ge=I2V_HEIGHT_MIN)
+    length:     int   = Field(81, ge=I2V_LENGTH_MIN)
+    high_steps: int   = Field(2, ge=I2V_STEPS_MIN)
+    low_steps:  int   = Field(3, ge=I2V_STEPS_MIN)
     cfg:        float = Field(1.0, ge=CFG_MIN, le=CFG_MAX)
     frame_rate: int   = 10
 
@@ -608,12 +622,12 @@ def queue_t2i(req: GenerateRequest):
         "prompt": req.prompt, "negative": req.negative,
         "lora": _lora_label(req.lora_name, req.lora_strength),
     }
-    return {"id": gen_queue.enqueue("t2i", req.dict(), summary)}
+    return {"id": gen_queue.enqueue("t2i", req.model_dump(), summary)}
 
 
 @router.post("/queue/i2i")
 async def queue_i2i(
-    image_path:    Annotated[str,   Form()],
+    image_path:    Annotated[str,   Form()] = "",     # 빈값·누락은 _validate_image_path 가 메시지와 함께 거부
     checkpoint:    Annotated[str,   Form()] = "",
     prompt:        Annotated[str,   Form()] = "",
     negative:      Annotated[str,   Form()] = "",
@@ -623,6 +637,8 @@ async def queue_i2i(
     lora_strength: Annotated[float, Form(ge=LORA_STRENGTH_MIN, le=LORA_STRENGTH_MAX)] = 0.8,
     mask_file:     UploadFile = File(None),
 ):
+    _validate_checkpoint(checkpoint)
+    _validate_image_path(image_path)
     mask_path = None
     if mask_file:
         mask_bytes = await mask_file.read()
@@ -647,13 +663,14 @@ async def queue_i2i(
 
 @router.post("/queue/i2v")
 def queue_i2v(req: I2VRequest):
+    _validate_image_path(req.image_path)
     summary = {
         "mode": "i2v", "prompt": req.prompt, "negative": req.negative,
         "base_image": req.image_path, "seed": req.seed,
         "width": req.width, "height": req.height, "length": req.length,
         "high_steps": req.high_steps, "low_steps": req.low_steps, "cfg": req.cfg,
     }
-    return {"id": gen_queue.enqueue("i2v", req.dict(), summary)}
+    return {"id": gen_queue.enqueue("i2v", req.model_dump(), summary)}
 
 
 @router.get("/queue")

@@ -8,9 +8,9 @@ def open_t2i(page: Page):
     expect(page.locator(".app-header")).to_be_visible()
     page.get_by_role("button", name="T2I", exact=True).click()
 
-def neg_box(page):   return page.locator("label:text-is('❌ 부정 프롬프트') + div")
-def neg_text(page):  return neg_box(page).locator("textarea")
-def neg_clear(page): return neg_box(page).get_by_title("초기화")
+def neg_box(page):   return page.get_by_test_id("neg-box")
+def neg_text(page):  return page.get_by_test_id("neg-box-text")
+def neg_clear(page): return page.get_by_test_id("neg-box-clear")
 
 # NG-01
 def test_ng01_negative_fill_text(page: Page):

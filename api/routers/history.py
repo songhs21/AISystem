@@ -1,5 +1,5 @@
 # api/routers/history.py
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from core.image.preference import (
     get_all_generations, get_generation_by_id,
@@ -9,6 +9,7 @@ from core.image.preference import (
 )
 from core.image.tag import tag_meta, sync_unregistered_tags
 from config.PATH import TAG_META_PATH
+from config.constants import PASS_REASON_KO
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -45,7 +46,6 @@ def list_generations():
 def get_generation(gen_id: int):
     gen = get_generation_by_id(gen_id)
     if not gen:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="generation not found")
     return gen
 
@@ -59,13 +59,21 @@ def bulk_feedbacks(body: dict):
 
 @router.post("/feedback")
 def post_feedback(req: FeedbackRequest):
-    save_feedback(
-        req.generation_id, req.score,
-        req.liked_tags, req.disliked_tags,
-        req.pass_type, req.pass_reasons, req.false_tags
-    )
-    if req.pass_type != "dislike" and req.score is not None:
-        update_tag_weights(req.liked_tags, req.disliked_tags, req.score)
+    unknown = [r for r in req.pass_reasons if r not in PASS_REASON_KO]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"알 수 없는 사유: {', '.join(unknown)}")
+
+    if req.pass_type == "dislike":
+        # 마음에 들지 않음: 태그/점수는 저장하지 않고 사유만 저장
+        liked, disliked, false_tags, score, reasons = [], [], [], None, req.pass_reasons
+    else:
+        liked, disliked, false_tags, score, reasons = (
+            req.liked_tags, req.disliked_tags, req.false_tags, req.score, [],
+        )
+
+    save_feedback(req.generation_id, score, liked, disliked, req.pass_type, reasons, false_tags)
+    if req.pass_type != "dislike" and score is not None:
+        update_tag_weights(liked, disliked, score)
     return {"ok": True}
 
 

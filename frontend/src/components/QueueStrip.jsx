@@ -92,6 +92,7 @@ function QueueCard({ item, size, waitingNo, selected, onSelect, onRemove }) {
 
   return (
     <div
+      data-testid={`queue-card-${item.id}`}
       title={title}
       onClick={() => (isDone || isRunning || isWaiting) && onSelect(item)}
       style={{
@@ -118,6 +119,7 @@ function QueueCard({ item, size, waitingNo, selected, onSelect, onRemove }) {
       }}>{item.kind}</span>
 
       <button
+        data-testid={`queue-remove-${item.id}`}
         title={isRunning ? '중단' : isError || isDone ? '목록에서 제거' : '대기열에서 제거'}
         onClick={e => { e.stopPropagation(); onRemove(item) }}
         style={{
@@ -127,10 +129,10 @@ function QueueCard({ item, size, waitingNo, selected, onSelect, onRemove }) {
         }}
       >×</button>
 
-      {item.status === 'waiting' && <div style={overlayBase}>대기 #{waitingNo}</div>}
-      {isError && <div style={{ ...overlayBase, background: 'rgba(224,85,85,0.85)' }}>⚠ 실패</div>}
+      {item.status === 'waiting' && <div data-testid={`queue-status-${item.id}`} style={overlayBase}>대기 #{waitingNo}</div>}
+      {isError && <div data-testid={`queue-status-${item.id}`} style={{ ...overlayBase, background: 'rgba(224,85,85,0.85)' }}>⚠ 실패</div>}
       {isRunning && (
-        <div style={{ ...overlayBase, padding: 0 }}>
+        <div data-testid={`queue-status-${item.id}`} style={{ ...overlayBase, padding: 0 }}>
           <div style={{ height: 3, background: 'rgba(255,255,255,0.25)' }}>
             <div style={{ height: '100%', width: `${(item.progress || 0) * 100}%`, background: 'var(--accent)' }} />
           </div>
@@ -171,25 +173,25 @@ export default function QueueStrip({
   return (
     <div style={{ position: 'relative', flexShrink: 0, zIndex: 70 }}>
       {open && (
-        <div style={{ position: 'relative', background: 'var(--bg2)', borderBottom: '1px solid var(--border)' }}>
+        <div data-testid="queue-panel" style={{ position: 'relative', background: 'var(--bg2)', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px 0' }}>
-            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+            <span data-testid="queue-count" style={{ fontSize: 11, color: 'var(--text-dim)' }}>
               {pendingCount > 0 ? `진행·대기 ${pendingCount}개` : `${items.length}개`}
             </span>
 
             {shutdown.remaining > 0 && (
-              <span style={{ fontSize: 11, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span data-testid="queue-shutdown-countdown" style={{ fontSize: 11, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 ⏻ PC가 {shutdown.remaining}초 후 종료됩니다
-                <button className="btn btn-danger" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onAbortShutdown}>
+                <button data-testid="queue-abort-countdown" className="btn btn-danger" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onAbortShutdown}>
                   종료 취소
                 </button>
               </span>
             )}
 
             {shutdown.extracting && (
-              <span style={{ fontSize: 11, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span data-testid="queue-shutdown-extracting" style={{ fontSize: 11, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 ⏻ 종료 전 LLM 메모리 추출 중 ({shutdown.batches}/{shutdown.max_batches})
-                <button className="btn btn-danger" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onAbortShutdown}>
+                <button data-testid="queue-abort-extract" className="btn btn-danger" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onAbortShutdown}>
                   종료 취소
                 </button>
               </span>
@@ -198,7 +200,7 @@ export default function QueueStrip({
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
               {pendingCount > 0 && (
                 <>
-                  <button className="btn btn-ghost"
+                  <button className="btn btn-ghost" data-testid="queue-shutdown-toggle"
                     title="대기열의 모든 작업이 끝나면 PC를 종료합니다"
                     style={{
                       fontSize: 11, padding: '2px 8px',
@@ -207,7 +209,7 @@ export default function QueueStrip({
                     onClick={onToggleShutdown}>
                     ⏻ 완료 시 PC 종료{shutdown.armed ? ' 켜짐' : ''}
                   </button>
-                  <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onClearPending}>
+                  <button className="btn btn-ghost" data-testid="queue-clear" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onClearPending}>
                     전체 취소
                   </button>
                 </>
@@ -215,9 +217,9 @@ export default function QueueStrip({
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, padding: '4px 12px 10px', overflowX: 'auto' }}>
+          <div data-testid="queue-list" style={{ display: 'flex', gap: 8, padding: '4px 12px 10px', overflowX: 'auto' }}>
             {items.length === 0 ? (
-              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>생성 요청이 여기에 쌓입니다</span>
+              <span data-testid="queue-empty" style={{ fontSize: 11, color: 'var(--text-dim)' }}>생성 요청이 여기에 쌓입니다</span>
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={waitingIds} strategy={horizontalListSortingStrategy}>
@@ -240,12 +242,13 @@ export default function QueueStrip({
               </DndContext>
             )}
 
-            <ResizeHandle axis="y" style={{ bottom: 0 }} {...resize} onDoubleClick={() => onCardSizeChange?.(88)} />
+            <ResizeHandle data-testid="queue-resize" axis="y" style={{ bottom: 0 }} {...resize} onDoubleClick={() => onCardSizeChange?.(88)} />
           </div>
         </div>
       )}
 
       <button
+        data-testid="queue-toggle"
         onClick={onToggle}
         style={{
           position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',

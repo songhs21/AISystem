@@ -57,14 +57,13 @@ def open_t2i(page: Page, bulk=False):
     expect(search(page)).to_be_visible()
 
 
-def search(page):   return page.get_by_placeholder("🔍 전체 태그 검색...")
-def reset_btn(page): return page.locator("button", has_text=re.compile("🗑.*초기화"))
-def copy_btn(page):  return preview(page).locator("button", has_text="📋")  # 다른 영역에도 복사 버튼이 있어 범위를 좁힘
-def preview(page):  return reset_btn(page).locator("xpath=../..")           # 최종 프롬프트 영역
-def tags(page):     return preview(page).locator("div[style*='inline-flex']")  # 등록된 객체
-def result_rows(page):  # 검색 결과 행: 왼쪽 "분류 / 소분류" 글자로 찾는다
-    return page.locator("span", has_text=re.compile(r"^\w+ / ")).locator("xpath=..")
-
+def search(page):   return page.get_by_test_id("tag-search")
+def reset_btn(page): return page.get_by_test_id("prompt-reset")
+def copy_btn(page):  return page.get_by_test_id("prompt-copy")
+def preview(page):  return page.get_by_test_id("prompt-preview")           # 최종 프롬프트 영역
+def tags(page):     return page.get_by_test_id("prompt-tag")              # 등록된 객체
+def result_rows(page):  # 검색 결과 행
+    return page.get_by_test_id("search-result")
 
 def tag_names(page):
     return [re.sub(r"\s+", " ", t).replace("×", "").strip() for t in tags(page).all_inner_texts()]
@@ -205,6 +204,7 @@ def test_ts17_duplicate_ignored_rest_registered(page: Page):
     open_t2i(page)
     type_and_enter(page, "elf")
     type_and_enter(page, "elf, smile")
+    expect(tags(page)).to_have_count(2)   # 등록이 화면에 반영될 때까지 대기
     assert tag_names(page) == ["[종족] 엘프(elf)", "[상태] 미소(smile)"]
     expect(search(page)).to_have_value("")
 
@@ -308,7 +308,7 @@ def test_fp10_area_scrolls_to_reach_all_tags(page: Page):
     names = [f"tag{i:02d}" for i in range(1, 41)]
     type_and_enter(page, ", ".join(names))
     expect(tags(page)).to_have_count(40)
-    box = tags(page).first.locator("xpath=..")
+    box = page.get_by_test_id("prompt-tags")
     assert box.evaluate("e => e.scrollHeight > e.clientHeight")     # 스크롤이 생김
     box.evaluate("e => { e.scrollTop = e.scrollHeight }")
     # 스크롤하면 마지막 객체가 영역 안으로 들어온다 (바깥 패널의 가림과 무관하게 영역 기준으로 비교)

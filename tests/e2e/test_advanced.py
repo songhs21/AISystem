@@ -52,22 +52,22 @@ def open_t2i(page: Page, weights=None):
     page.goto(BASE)
     expect(page.locator(".app-header")).to_be_visible()
     page.get_by_role("button", name="T2I", exact=True).click()
-    expect(page.get_by_placeholder("🔍 전체 태그 검색...")).to_be_visible()
+    expect(page.get_by_test_id("tag-search")).to_be_visible()
 
 
 # ── 접근자 ────────────────────────────────────────────────
 
-def adv_toggle(page):    return page.get_by_role("button", name="고급 옵션")
-def nav_btn(page, cat):  return page.get_by_role("button", name=cat, exact=True)
+def adv_toggle(page):    return page.get_by_test_id("adv-toggle")
+def nav_btn(page, cat):  return page.get_by_test_id(f"nav-{cat}")
 
-def cat_title(page, cat):  # 카테고리 제목 글자(div). 같은 글자의 네비게이션 버튼(button)과 구분된다
-    return page.locator("div", has_text=re.compile(rf"^{cat}$"))
-def cat_block(page, cat):  return cat_title(page, cat).locator("xpath=..")
-def scroller(page):        return cat_block(page, "people").locator("xpath=..")   # 태그 목록 창(스크롤 영역)
+def cat_title(page, cat):  # 카테고리 제목 글자(div). 같은 글자의 네비게이션 버튼과 구분된다
+    return page.get_by_test_id(f"cat-title-{cat}")
+def cat_block(page, cat):  return page.get_by_test_id(f"cat-block-{cat}")
+def scroller(page):        return page.get_by_test_id("cat-scroller")   # 태그 목록 창(스크롤 영역)
 
 def sub_header(page, label):   # 소분류 제목 글자. 단일 선택은 "종족단일▶" 처럼 끝에 ▶(닫힘)/▼(열림)
-    return page.locator("span", has_text=re.compile(rf"^{label}(단일)?[▶▼]$"))
-def sub_block(page, label):    return sub_header(page, label).locator("xpath=../..")
+    return page.get_by_test_id(f"sub-title-{label}")
+def sub_block(page, label):    return page.get_by_test_id(f"sub-block-{label}")
 def list_btn(page, label, name):   # 소분류의 전체 태그 목록 버튼. 이름은 "한글(영문)"
     return sub_block(page, label).get_by_role("button", name=name, exact=True)
 def chips(page, label):        # ★ 자주 사용하는 태그 버튼. 이름에 "(" 가 없다
@@ -95,18 +95,18 @@ def open_sub(page, label):
     sub_header(page, label).click()
     expect(sub_header(page, label)).to_contain_text("▼")
 
-def reset_btn(page):  return page.locator("button", has_text=re.compile("🗑.*초기화"))
-def preview(page):    return reset_btn(page).locator("xpath=../..")                 # 최종 프롬프트 영역
-def tags(page):       return preview(page).locator("div[style*='inline-flex']")     # 등록된 객체
+def reset_btn(page):  return page.get_by_test_id("prompt-reset")
+def preview(page):    return page.get_by_test_id("prompt-preview")                 # 최종 프롬프트 영역
+def tags(page):       return page.get_by_test_id("prompt-tag")                     # 등록된 객체
 def tag_names(page):
     return [re.sub(r"\s+", " ", t).replace("×", "").strip() for t in tags(page).all_inner_texts()]
 
 def chip_names(page, label):
     return [t.strip() for t in chips(page, label).all_inner_texts()]
 
-def handle(page):     return scroller(page).locator("xpath=preceding-sibling::div[1]")   # 크기 조절 핸들(태그 목록 창 바로 위)
-def split_box(page):  return handle(page).locator("xpath=..")                       # 상단 영역과 카테고리 영역을 담은 컨테이너
-def top_pane(page):   return handle(page).locator("xpath=preceding-sibling::div[1]")
+def handle(page):     return page.get_by_test_id("split-handle")   # 크기 조절 핸들(태그 목록 창 바로 위)
+def split_box(page):  return page.get_by_test_id("split-box")      # 상단 영역과 카테고리 영역을 담은 컨테이너
+def top_pane(page):   return page.get_by_test_id("top-pane")
 
 def top_ratio(page):  # 상단 영역 높이 / 컨테이너 높이
     return top_pane(page).bounding_box()["height"] / split_box(page).bounding_box()["height"]

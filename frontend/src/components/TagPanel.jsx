@@ -80,14 +80,17 @@ export default function TagPanel({ tags, koMap = {}, liked, disliked, passed, on
                 return (
                   <div key={tag} style={{ display: 'contents' }}>
                     <button
+                      data-testid={`fb-tag-like-${tag}`}
                       className={`tag-btn ${isLiked ? 'liked' : ''}`}
                       onClick={() => onLike(tag)}
                     >{`${isLiked ? '✅' : '👍'} ${tagLabel}\n${wStr}`}</button>
                     <button
+                      data-testid={`fb-tag-dislike-${tag}`}
                       className={`tag-btn ${isDisliked ? 'disliked' : ''}`}
                       onClick={() => onDislike(tag)}
                     >{`${isDisliked ? '❌' : '👎'} ${tagLabel}\n${wStr}`}</button>
                     <button
+                      data-testid={`fb-tag-pass-${tag}`}
                       className={`tag-btn ${isPassed ? 'passed' : ''}`}
                       onClick={() => onPass(tag)}
                     >{`${isPassed ? '🚫' : '⚠️'} ${tagLabel}\n${wStr}`}</button>

@@ -1,4 +1,4 @@
-"""생성 요청 전송 (TC GN-01·02·06·08·09).
+"""생성 요청 전송 (TC GN-01·02·06·08·09·25).
 
 태그 파일, 체크포인트, LoRA 응답은 가짜로 대체하고, 생성 요청(POST /api/sd/queue/t2i)은 가로채 본문을 확인한다
 (실제 생성이 시작되지 않게 하기 위해). 큐 개수 확인(GN-08·09)에는 실제 서버(8000)를 쓴다.
@@ -7,6 +7,7 @@ GN-08·09 는 결함 후보라 알럿 문구를 바꾸기 전까지 실패한다
 import json
 import os
 import re
+import time
 
 from playwright.sync_api import Page, Route, expect
 
@@ -52,11 +53,11 @@ def fake_queue_ok(page: Page):
     page.route("**/api/sd/queue/t2i", handler)
 
 
-def search(page):       return page.get_by_placeholder("🔍 전체 태그 검색...")
-def generate_btn(page): return page.get_by_role("button", name=re.compile("이미지 생성"))
-def ckpt_select(page):  return page.locator("label:text-is('체크포인트') + select")
-def lora_select(page):  return page.locator("select").filter(has=page.locator("option", has_text="LoRA 없음"))
-def strength(page):     return page.locator("label:has-text('Strength:') + input[type=range]")
+def search(page):       return page.get_by_test_id("tag-search")
+def generate_btn(page): return page.get_by_test_id("generate-btn")
+def ckpt_select(page):  return page.get_by_test_id("ckpt-select")
+def lora_select(page):  return page.get_by_test_id("t2i-lora-select")
+def strength(page):     return page.get_by_test_id("t2i-lora-strength")
 
 
 def add_tags(page, text):
@@ -139,3 +140,26 @@ def test_gn09_timeout_shows_alert_only(page: Page):
     dialog.accept()
     assert message == TIMEOUT_ALERT
     assert page.evaluate("window.__alive") is True, "페이지가 새로고침됨"
+
+
+# GN-25(화면 부분) 실행 중 오류로 끝난 항목: 큐 카드에 "⚠ 실패", 상단 오류 줄에 오류 메시지
+# 서버 큐 응답(GET /api/sd/queue)을 가짜로 바꿔 ComfyUI 없이 확인한다. DB failed 는 tests/api 쪽 test_gn25.
+def test_gn25_failed_item_is_shown(page: Page):
+    error = "ComfyUI 오류: boom"
+    item = {"id": "gn25", "kind": "t2i", "status": "error", "progress": 0, "text": "실패",
+            "summary": {"mode": "t2i", "checkpoint": "modelA.safetensors", "prompt": "alpha",
+                        "negative": "", "lora": None},
+            "result": None, "error": error, "created_at": time.time()}
+
+    def queue(route: Route):
+        if route.request.method != "GET":
+            route.continue_()
+            return
+        route.fulfill(status=200, headers=CORS, content_type="application/json",
+                      body=json.dumps({"items": [item],
+                                       "shutdown": {"armed": False, "remaining": 0, "extracting": False}}))
+
+    page.route("**/api/sd/queue", queue)
+    open_t2i(page)
+    expect(page.get_by_text("⚠ 실패", exact=True)).to_be_visible()
+    expect(page.get_by_text(f"⚠ [t2i] {error}", exact=True)).to_be_visible()
